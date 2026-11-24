@@ -13,9 +13,8 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use librqbit::{
-    AddTorrent, AddTorrentOptions, AddTorrentResponse, ListenerMode, ListenerOptions, Session,
-    SessionOptions, SessionPersistenceConfig, TorrentStatsState, api::TorrentIdOrHash,
-    dht::Id20, limits::LimitsConfig,
+    AddTorrent, AddTorrentOptions, AddTorrentResponse, ListenerMode, ListenerOptions, Session, SessionOptions,
+    SessionPersistenceConfig, TorrentStatsState, api::TorrentIdOrHash, dht::Id20, limits::LimitsConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -154,9 +153,7 @@ impl Engine {
             default_download_dir.to_path_buf(),
             SessionOptions {
                 fastresume: true,
-                persistence: Some(SessionPersistenceConfig::Json {
-                    folder: Some(data_dir.join("session")),
-                }),
+                persistence: Some(SessionPersistenceConfig::Json { folder: Some(data_dir.join("session")) }),
                 listen: Some(ListenerOptions {
                     mode: ListenerMode::TcpAndUtp,
                     listen_addr: (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),
@@ -224,16 +221,8 @@ impl Engine {
     /// a while.
     pub async fn preview(&self, source: &str) -> Result<Draft> {
         let add = to_add_torrent(source)?;
-        let response = self
-            .session
-            .add_torrent(
-                add,
-                Some(AddTorrentOptions {
-                    list_only: true,
-                    ..Default::default()
-                }),
-            )
-            .await?;
+        let response =
+            self.session.add_torrent(add, Some(AddTorrentOptions { list_only: true, ..Default::default() })).await?;
         let AddTorrentResponse::ListOnly(list) = response else {
             bail!("this torrent is already in the list");
         };
@@ -241,18 +230,10 @@ impl Engine {
             .info
             .iter_file_details()
             .enumerate()
-            .map(|(index, f)| DraftFile {
-                index,
-                path: f.filename.to_vec().join("/"),
-                size: f.len,
-            })
+            .map(|(index, f)| DraftFile { index, path: f.filename.to_vec().join("/"), size: f.len })
             .collect();
         Ok(Draft {
-            name: list
-                .info
-                .name()
-                .map(|n| n.into_owned())
-                .unwrap_or_else(|| list.info_hash.as_string()),
+            name: list.info.name().map(|n| n.into_owned()).unwrap_or_else(|| list.info_hash.as_string()),
             info_hash: list.info_hash.as_string(),
             total_size: files.iter().map(|f| f.size).sum(),
             files,
@@ -352,8 +333,7 @@ impl Engine {
                         uploaded: stats.uploaded_bytes,
                         down_bps,
                         up_bps,
-                        eta_secs: (status == Status::Downloading && down_bps > 0)
-                            .then(|| remaining / down_bps),
+                        eta_secs: (status == Status::Downloading && down_bps > 0).then(|| remaining / down_bps),
                         seeds: peers.map_or(0, |p| p.live_seeders),
                         peers: peers.map_or(0, |p| p.live),
                         error: stats.error,
@@ -401,9 +381,7 @@ impl Engine {
     }
 
     fn handle(&self, id: usize) -> Result<Arc<librqbit::ManagedTorrent>> {
-        self.session
-            .get(TorrentIdOrHash::Id(id))
-            .with_context(|| format!("no download with id {id}"))
+        self.session.get(TorrentIdOrHash::Id(id)).with_context(|| format!("no download with id {id}"))
     }
 }
 
@@ -422,10 +400,16 @@ fn to_add_torrent(source: &str) -> Result<AddTorrent<'static>> {
 
 /// A torrent name made safe as a Windows folder name.
 fn safe_folder_name(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control() { '_' } else { c })
-        .collect();
+    let cleaned: String =
+        name.chars()
+            .map(|c| {
+                if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control() {
+                    '_'
+                } else {
+                    c
+                }
+            })
+            .collect();
     let trimmed = cleaned.trim().trim_end_matches(['.', ' ']);
     if trimmed.is_empty() { "torrent".into() } else { trimmed.chars().take(120).collect() }
 }
@@ -435,10 +419,7 @@ fn extras_path(data_dir: &Path) -> PathBuf {
 }
 
 fn load_extras(data_dir: &Path) -> Extras {
-    std::fs::read(extras_path(data_dir))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default()
+    std::fs::read(extras_path(data_dir)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
 }
 
 fn save_extras(data_dir: &Path, extras: &Extras) -> Result<()> {

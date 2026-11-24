@@ -39,7 +39,7 @@ pub fn eta(secs: u64) -> String {
         60..3600 => format!("{} мин", secs.div_ceil(60)),
         3600..86400 => {
             let m = secs.div_ceil(60);
-            if m % 60 == 0 { format!("{} ч", m / 60) } else { format!("{} ч {} мин", m / 60, m % 60) }
+            if m.is_multiple_of(60) { format!("{} ч", m / 60) } else { format!("{} ч {} мин", m / 60, m % 60) }
         }
         _ => format!("{} дн", secs / 86400),
     }

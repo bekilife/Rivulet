@@ -37,9 +37,10 @@ pub struct Theme {
 
 impl Theme {
     pub fn current() -> Theme {
-        let dark = reg_dword(w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), w!("AppsUseLightTheme"))
-            .map(|v| v == 0)
-            .unwrap_or(false);
+        let dark =
+            reg_dword(w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), w!("AppsUseLightTheme"))
+                .map(|v| v == 0)
+                .unwrap_or(false);
         // AccentColor is stored as 0xAABBGGRR.
         let accent = reg_dword(w!("Software\\Microsoft\\Windows\\DWM"), w!("AccentColor"))
             .map(|v| Color::rgba((v & 255) as u8, ((v >> 8) & 255) as u8, ((v >> 16) & 255) as u8, 1.0))

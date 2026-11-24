@@ -25,17 +25,13 @@ const ID: u32 = 1;
 fn icon(large: bool) -> HICON {
     unsafe {
         let hinst = GetModuleHandleW(None).unwrap_or_default();
-        LoadIconMetric(Some(hinst.into()), PCWSTR(1 as _), if large { LIM_LARGE } else { LIM_SMALL }).unwrap_or_default()
+        LoadIconMetric(Some(hinst.into()), PCWSTR(1 as _), if large { LIM_LARGE } else { LIM_SMALL })
+            .unwrap_or_default()
     }
 }
 
 fn base(hwnd: HWND) -> NOTIFYICONDATAW {
-    NOTIFYICONDATAW {
-        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-        hWnd: hwnd,
-        uID: ID,
-        ..Default::default()
-    }
+    NOTIFYICONDATAW { cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32, hWnd: hwnd, uID: ID, ..Default::default() }
 }
 
 fn copy(dst: &mut [u16], s: &str) {

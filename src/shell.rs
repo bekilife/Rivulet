@@ -14,9 +14,9 @@ use windows::{
         System::{
             DataExchange::COPYDATASTRUCT,
             Registry::{
-                HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ, RegCloseKey,
-                RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW, RegOpenKeyExW, RegQueryInfoKeyW,
-                RegSetValueExW,
+                HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
+                RegCloseKey, RegCreateKeyExW, RegDeleteKeyValueW, RegDeleteTreeW, RegGetValueW, RegOpenKeyExW,
+                RegQueryInfoKeyW, RegSetValueExW,
             },
             Threading::CreateMutexW,
         },
@@ -27,8 +27,7 @@ use windows::{
             },
             WindowsAndMessaging::{
                 AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, PostMessageW, SMTO_ABORTIFHUNG,
-                SendMessageTimeoutW,
-                WM_COPYDATA,
+                SendMessageTimeoutW, WM_COPYDATA,
             },
         },
     },
@@ -105,11 +104,8 @@ pub const WM_QUIT_APP: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 3
 
 fn send_sources(hwnd: HWND, sources: &[String]) {
     let text: Vec<u16> = sources.join("\n").encode_utf16().collect();
-    let cds = COPYDATASTRUCT {
-        dwData: COPYDATA_OPEN,
-        cbData: (text.len() * 2) as u32,
-        lpData: text.as_ptr() as *mut _,
-    };
+    let cds =
+        COPYDATASTRUCT { dwData: COPYDATA_OPEN, cbData: (text.len() * 2) as u32, lpData: text.as_ptr() as *mut _ };
     unsafe {
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));

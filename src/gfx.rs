@@ -2,10 +2,12 @@
 //! 32-bit DIB and copied to the window. Taken from Win11Widget.
 //! All coordinates are CSS-like logical pixels (DIPs); the DPI scale is applied by D2D.
 
+// Kept as in Win11Widget (edition 2021 style).
+#![allow(clippy::too_many_arguments, clippy::collapsible_if)]
+
 use std::{cell::RefCell, collections::HashMap, mem::ManuallyDrop};
 
 use windows::{
-    core::{Interface, PCWSTR},
     Win32::{
         Foundation::{HWND, POINT, RECT, SIZE},
         Graphics::{
@@ -14,8 +16,9 @@ use windows::{
             Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
             Gdi::*,
         },
-        UI::WindowsAndMessaging::{UpdateLayeredWindow, ULW_ALPHA},
+        UI::WindowsAndMessaging::{ULW_ALPHA, UpdateLayeredWindow},
     },
+    core::{Interface, PCWSTR},
 };
 use windows_numerics::{Matrix3x2, Vector2};
 

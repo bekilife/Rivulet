@@ -299,7 +299,12 @@ impl Ui {
             } else if self.hover == Some(hit) {
                 g.fill_rrect(r, 8.0, if primary { Color::white(0.12) } else { t.hover });
             }
-            g.text(label, 14.0).weight(600).color(fg).width(r.w).align(Align::Center).draw(r.x, r.y + (r.h - g.normal_lh(14.0)) / 2.0);
+            g.text(label, 14.0)
+                .weight(600)
+                .color(fg)
+                .width(r.w)
+                .align(Align::Center)
+                .draw(r.x, r.y + (r.h - g.normal_lh(14.0)) / 2.0);
             hits.push((r, hit));
         }
         self.hits.extend(hits);
@@ -350,7 +355,10 @@ impl Ui {
             icons::draw(g, icons::CLOSE, c.x + 7.0, c.y + 7.0, 18.0, 1.7, t.text2);
             self.hits.push((c, Hit::SearchClear));
         } else {
-            g.text("Rivulet", 18.0).weight(650).color(t.text).draw(group.x + group.w + 14.0, 12.0 + (44.0 - g.normal_lh(18.0)) / 2.0);
+            g.text("Rivulet", 18.0)
+                .weight(650)
+                .color(t.text)
+                .draw(group.x + group.w + 14.0, 12.0 + (44.0 - g.normal_lh(18.0)) / 2.0);
             let b = Rect::new(s.x - 10.0 - 44.0, 12.0, 44.0, 44.0);
             g.fill_rrect(b, 22.0, t.card);
             g.stroke_rrect(b.inset(0.5), 21.5, 1.0, t.card_border);
@@ -390,15 +398,12 @@ impl Ui {
             self.scroll = 0.0;
             let cy = top + (h - top) / 2.0 - 50.0;
             g.text("Rivulet", 44.0).weight(700).color(t.accent).width(w).align(Align::Center).draw(0.0, cy);
-            g.text(
-                "Перетащите сюда .torrent-файл, нажмите «+» или вставьте magnet-ссылку (Ctrl+V)",
-                14.0,
-            )
-            .color(t.text2)
-            .width(320.0)
-            .align(Align::Center)
-            .wrap()
-            .draw((w - 320.0) / 2.0, cy + 64.0);
+            g.text("Перетащите сюда .torrent-файл, нажмите «+» или вставьте magnet-ссылку (Ctrl+V)", 14.0)
+                .color(t.text2)
+                .width(320.0)
+                .align(Align::Center)
+                .wrap()
+                .draw((w - 320.0) / 2.0, cy + 64.0);
             return;
         }
         let shown: Vec<usize> = (0..self.snaps.len()).filter(|&i| self.matches(&self.snaps[i])).collect();
@@ -477,7 +482,15 @@ impl Ui {
         if selected {
             let cx = right - 10.0;
             g.fill_circle(cx, eb.y + 15.0, 10.0, t.text);
-            icons::draw(g, icons::CHECK, cx - 7.0, eb.y + 8.0, 14.0, 2.0, if t.dark { Color::hex(0x1A1A1A) } else { Color::white(1.0) });
+            icons::draw(
+                g,
+                icons::CHECK,
+                cx - 7.0,
+                eb.y + 8.0,
+                14.0,
+                2.0,
+                if t.dark { Color::hex(0x1A1A1A) } else { Color::white(1.0) },
+            );
             right = cx - 18.0;
         }
 
@@ -516,7 +529,10 @@ impl Ui {
         let pill = Rect::new(x, row_y, 10.0 + 18.0 + 6.0 + pw + 12.0, 32.0);
         g.fill_rrect(pill, 9.0, status_color.alpha(0.14));
         icons::draw(g, status_icon, pill.x + 10.0, pill.y + 7.0, 18.0, 1.8, status_color);
-        g.text(&pct, 14.0).weight(600).color(status_color).draw(pill.x + 34.0, row_y + (32.0 - g.normal_lh(14.0)) / 2.0);
+        g.text(&pct, 14.0)
+            .weight(600)
+            .color(status_color)
+            .draw(pill.x + 34.0, row_y + (32.0 - g.normal_lh(14.0)) / 2.0);
         g.text(status_label(s), 14.0)
             .weight(500)
             .color(t.text)
@@ -585,10 +601,19 @@ impl Ui {
         let t = self.theme;
         let tw = g.text(text, 13.0).weight(500).measure().min(w - 80.0);
         let r = Rect::new((w - tw - 32.0) / 2.0, h - 56.0, tw + 32.0, 36.0);
-        let (bg, fg) = if t.dark { (Color::hex(0xF2F2F2), Color::hex(0x1A1A1A)) } else { (Color::hex(0x2B2B2B), Color::white(1.0)) };
+        let (bg, fg) = if t.dark {
+            (Color::hex(0xF2F2F2), Color::hex(0x1A1A1A))
+        } else {
+            (Color::hex(0x2B2B2B), Color::white(1.0))
+        };
         g.shadow(r, 18.0, 4.0, 14.0, Color(0.0, 0.0, 0.0, 0.18));
         g.fill_rrect(r, 18.0, bg);
-        g.text(text, 13.0).weight(500).color(fg).width(tw).ellipsis().draw(r.x + 16.0, r.y + (36.0 - g.normal_lh(13.0)) / 2.0);
+        g.text(text, 13.0)
+            .weight(500)
+            .color(fg)
+            .width(tw)
+            .ellipsis()
+            .draw(r.x + 16.0, r.y + (36.0 - g.normal_lh(13.0)) / 2.0);
     }
 
     // ---------------------------------------------------------------- sheet
@@ -624,28 +649,29 @@ impl Ui {
         g.text(&name, 18.0).weight(650).color(t.text).width(iw).ellipsis().draw(x, p.y + 38.0);
 
         let mut hits: Vec<(Rect, Hit)> = Vec::new();
-        let button = |g: &Gfx, hits: &mut Vec<(Rect, Hit)>, r: Rect, label: &str, hit: Hit, primary: bool, enabled: bool| {
-            let (bg, fg) = if primary { (t.accent, t.on_accent) } else { (t.chip, t.text) };
-            let bg = if !enabled { bg.alpha(0.4) } else { bg };
-            g.fill_rrect(r, 8.0, bg);
-            if !primary {
-                g.stroke_rrect(r.inset(0.5), 7.5, 1.0, t.chip_border);
-            }
-            if enabled && pressed == Some(hit) {
-                g.fill_rrect(r, 8.0, Color(0.0, 0.0, 0.0, 0.12));
-            } else if enabled && hover == Some(hit) {
-                g.fill_rrect(r, 8.0, if primary { Color::white(0.12) } else { t.hover });
-            }
-            g.text(label, 14.0)
-                .weight(600)
-                .color(if enabled { fg } else { fg.alpha(0.6) })
-                .width(r.w)
-                .align(Align::Center)
-                .draw(r.x, r.y + (r.h - g.normal_lh(14.0)) / 2.0);
-            if enabled {
-                hits.push((r, hit));
-            }
-        };
+        let button =
+            |g: &Gfx, hits: &mut Vec<(Rect, Hit)>, r: Rect, label: &str, hit: Hit, primary: bool, enabled: bool| {
+                let (bg, fg) = if primary { (t.accent, t.on_accent) } else { (t.chip, t.text) };
+                let bg = if !enabled { bg.alpha(0.4) } else { bg };
+                g.fill_rrect(r, 8.0, bg);
+                if !primary {
+                    g.stroke_rrect(r.inset(0.5), 7.5, 1.0, t.chip_border);
+                }
+                if enabled && pressed == Some(hit) {
+                    g.fill_rrect(r, 8.0, Color(0.0, 0.0, 0.0, 0.12));
+                } else if enabled && hover == Some(hit) {
+                    g.fill_rrect(r, 8.0, if primary { Color::white(0.12) } else { t.hover });
+                }
+                g.text(label, 14.0)
+                    .weight(600)
+                    .color(if enabled { fg } else { fg.alpha(0.6) })
+                    .width(r.w)
+                    .align(Align::Center)
+                    .draw(r.x, r.y + (r.h - g.normal_lh(14.0)) / 2.0);
+                if enabled {
+                    hits.push((r, hit));
+                }
+            };
         let footer_y = p.y + ph - 22.0 - 38.0;
         let ok = Rect::new(p.x + pw - 22.0 - 130.0, footer_y, 130.0, 38.0);
         let cancel = Rect::new(ok.x - 10.0 - 110.0, footer_y, 110.0, 38.0);
@@ -760,7 +786,8 @@ impl Ui {
                             .width(sw)
                             .align(Align::Right)
                             .draw(row.x + row.w - sw - 10.0, ty);
-                        let visible = Rect::new(row.x, ry.max(view.y), row.w, (ry + row_h).min(view.y + view.h) - ry.max(view.y));
+                        let visible =
+                            Rect::new(row.x, ry.max(view.y), row.w, (ry + row_h).min(view.y + view.h) - ry.max(view.y));
                         hits.push((visible, Hit::SheetFile(k)));
                     }
                     ry += row_h;
@@ -790,9 +817,14 @@ impl Ui {
                 g.text(&folder, 13.0).color(t.text).width(cr.x - x - 36.0).ellipsis().draw(x + 28.0, fy);
                 let need = sheet.selected_bytes();
                 let (free_text, free_color) = match sheet.free {
-                    Some(free) if free < need => {
-                        (format!("Не хватает места: нужно {}, свободно {}", fmt::size(need, false), fmt::size(free, false)), t.red)
-                    }
+                    Some(free) if free < need => (
+                        format!(
+                            "Не хватает места: нужно {}, свободно {}",
+                            fmt::size(need, false),
+                            fmt::size(free, false)
+                        ),
+                        t.red,
+                    ),
                     Some(free) => (format!("Свободно {}", fmt::size(free, false)), t.text2),
                     None => (String::new(), t.text2),
                 };

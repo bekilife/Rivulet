@@ -69,8 +69,14 @@ const T_CARET: usize = 3;
 const T_NOTICE: usize = 4;
 
 enum Event {
-    Preview { token: u64, result: Result<Draft, String> },
-    Added { token: u64, result: Result<(String, String), String> },
+    Preview {
+        token: u64,
+        result: Result<Draft, String>,
+    },
+    Added {
+        token: u64,
+        result: Result<(String, String), String>,
+    },
     Failed(String),
     Refresh,
     /// Sources handed over by a second copy of the app.
@@ -223,10 +229,8 @@ fn main() {
             return;
         }
     };
-    let prefs: Prefs = std::fs::read(data_dir.join("ui.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or_default();
+    let prefs: Prefs =
+        std::fs::read(data_dir.join("ui.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
 
     let hinst = unsafe { GetModuleHandleW(None).unwrap_or_default() };
     let class_w = wide(&class_name);
@@ -397,16 +401,15 @@ fn announce_changes(a: &mut App) {
 fn tray_tip(snaps: &[rivulet::engine::Snapshot]) -> String {
     let active: Vec<_> = snaps.iter().filter(|s| s.status == Status::Downloading).collect();
     if active.is_empty() {
-        return if snaps.is_empty() { "Rivulet".into() } else { "Rivulet — активных загрузок нет".into() };
+        return if snaps.is_empty() {
+            "Rivulet".into()
+        } else {
+            "Rivulet — активных загрузок нет".into()
+        };
     }
     let down: u64 = active.iter().map(|s| s.down_bps).sum();
     let up: u64 = snaps.iter().map(|s| s.up_bps).sum();
-    format!(
-        "Rivulet — загрузок: {}\n↓ {}  ↑ {}",
-        active.len(),
-        fmt::speed(down, false),
-        fmt::speed(up, false)
-    )
+    format!("Rivulet — загрузок: {}\n↓ {}  ↑ {}", active.len(), fmt::speed(down, false), fmt::speed(up, false))
 }
 
 /// Brings the window back from the tray, the taskbar or behind other windows.
@@ -507,8 +510,10 @@ fn open_next(a: &mut App) {
             } else {
                 format!("Не удалось открыть торрент.\n{e:#}")
             }),
-            Err(_) => Err("За 2 минуты не удалось получить список файлов. Возможно, сейчас никто не раздаёт этот торрент."
-                .to_string()),
+            Err(_) => {
+                Err("За 2 минуты не удалось получить список файлов. Возможно, сейчас никто не раздаёт этот торрент."
+                    .to_string())
+            }
         };
         post(Event::Preview { token, result });
     });
@@ -719,8 +724,11 @@ fn close_search(a: &mut App) {
 
 fn start_rename(a: &mut App, hash: &str) {
     let Some(s) = a.ui.snaps.iter().find(|s| s.info_hash == hash) else { return };
-    a.ui.rename =
-        Some(ui::Rename { hash: s.info_hash.clone(), original: s.name.clone(), text: s.alias.clone().unwrap_or_default() });
+    a.ui.rename = Some(ui::Rename {
+        hash: s.info_hash.clone(),
+        original: s.name.clone(),
+        text: s.alias.clone().unwrap_or_default(),
+    });
     a.ui.search_focus = false;
     a.ui.hover = None;
     start_caret(a);
@@ -732,7 +740,14 @@ fn save_rename(a: &mut App) {
     match a.engine.set_alias(&r.hash, &r.text) {
         Ok(()) => {
             refresh(a);
-            notify(a, if r.text.trim().is_empty() { "Название из торрента возвращено" } else { "Переименовано" });
+            notify(
+                a,
+                if r.text.trim().is_empty() {
+                    "Название из торрента возвращено"
+                } else {
+                    "Переименовано"
+                },
+            );
         }
         Err(e) => notify(a, format!("Не удалось сохранить название: {e}")),
     }
@@ -791,16 +806,16 @@ fn run_action(hwnd: HWND, action: Action) {
             if n == 0 {
                 return;
             }
-            let cmd = platform::popup(hwnd, &[Item::Cmd(1, "Убрать из списка"), Item::Cmd(2, "Убрать и удалить файлы…")]);
+            let cmd =
+                platform::popup(hwnd, &[Item::Cmd(1, "Убрать из списка"), Item::Cmd(2, "Убрать и удалить файлы…")]);
             let hashes = with(|a| a.ui.selected.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
             match cmd {
                 1 => {
                     with(|a| remove(a, hashes, false));
                 }
-                2 => {
-                    if confirm(hwnd, &format!("Удалить скачанные файлы ({})? Это нельзя отменить.", fmt::files(n))) {
-                        with(|a| remove(a, hashes, true));
-                    }
+                2 if confirm(hwnd, &format!("Удалить скачанные файлы ({})? Это нельзя отменить.", fmt::files(n))) =>
+                {
+                    with(|a| remove(a, hashes, true));
                 }
                 _ => {}
             }
@@ -990,7 +1005,8 @@ fn run_action(hwnd: HWND, action: Action) {
                 }
                 5 => {
                     let title = s.alias.clone().unwrap_or(s.name.clone());
-                    if confirm(hwnd, &format!("Удалить скачанные файлы «{title}»? Это нельзя отменить.")) {
+                    if confirm(hwnd, &format!("Удалить скачанные файлы «{title}»? Это нельзя отменить."))
+                    {
                         with(|a| remove(a, vec![s.info_hash.clone()], true));
                     }
                 }
@@ -1143,7 +1159,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 const NIN_BALLOONUSERCLICK: u32 = WM_USER + 5;
                 match (lp.0 & 0xFFFF) as u32 {
                     WM_LBUTTONUP | NIN_SELECT | NIN_KEYSELECT => {
-                        if IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() && GetForegroundWindow() == hwnd {
+                        if IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() && GetForegroundWindow() == hwnd
+                        {
                             let _ = ShowWindow(hwnd, SW_HIDE);
                         } else {
                             show_window(hwnd);
@@ -1300,10 +1317,11 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                             } else {
                                 text.pop();
                             }
-                        } else if key == b'V' as u16 && ctrl {
-                            if let Some(t) = platform::clipboard_text(hwnd) {
-                                text.push_str(t.lines().next().unwrap_or("").trim());
-                            }
+                        } else if key == b'V' as u16
+                            && ctrl
+                            && let Some(t) = platform::clipboard_text(hwnd)
+                        {
+                            text.push_str(t.lines().next().unwrap_or("").trim());
                         }
                         a.ui.caret_on = true;
                     }
@@ -1363,7 +1381,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     invalidate(hwnd);
                     Action::None
                 });
-                let typing = with(|a| a.ui.sheet.is_some() || a.ui.rename.is_some() || a.ui.search_focus).unwrap_or(true);
+                let typing =
+                    with(|a| a.ui.sheet.is_some() || a.ui.rename.is_some() || a.ui.search_focus).unwrap_or(true);
                 if key == b'V' as u16 && ctrl && !typing {
                     paste(hwnd);
                 } else if let Some(action) = action {

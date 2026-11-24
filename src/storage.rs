@@ -20,8 +20,7 @@ use anyhow::{Context, Result};
 use librqbit::{
     ManagedTorrentShared, TorrentMetadata,
     storage::{
-        BoxStorageFactory, StorageFactory, StorageFactoryExt, TorrentStorage,
-        filesystem::FilesystemStorageFactory,
+        BoxStorageFactory, StorageFactory, StorageFactoryExt, TorrentStorage, filesystem::FilesystemStorageFactory,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -97,9 +96,14 @@ impl StorageFactory for PartsStorageFactory {
 
 enum Slot {
     Padding,
-    Real { path: PathBuf, file: OnceLock<File> },
+    Real {
+        path: PathBuf,
+        file: OnceLock<File>,
+    },
     /// Unselected file: its bytes live in the parts file at this offset.
-    Part { torrent_offset: u64 },
+    Part {
+        torrent_offset: u64,
+    },
 }
 
 struct Inner {

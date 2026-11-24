@@ -164,7 +164,8 @@ fn add(m: HMENU, it: &Item) {
             }
             Item::Check(id, text, on) => {
                 let t = wide(text);
-                let _ = AppendMenuW(m, MF_STRING | if *on { MF_CHECKED } else { MF_UNCHECKED }, *id, PCWSTR(t.as_ptr()));
+                let _ =
+                    AppendMenuW(m, MF_STRING | if *on { MF_CHECKED } else { MF_UNCHECKED }, *id, PCWSTR(t.as_ptr()));
             }
             Item::Disabled(text) => {
                 let t = wide(text);
@@ -184,7 +185,8 @@ pub fn sources_in_text(text: &str) -> Vec<String> {
         .map(|s| s.trim_matches(|c| c == '"' || c == '\'' || c == '<' || c == '>'))
         .filter(|s| {
             s.starts_with("magnet:?")
-                || ((s.starts_with("http://") || s.starts_with("https://")) && s.to_ascii_lowercase().contains(".torrent"))
+                || ((s.starts_with("http://") || s.starts_with("https://"))
+                    && s.to_ascii_lowercase().contains(".torrent"))
                 || (s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit()))
         })
         .map(str::to_owned)

@@ -109,9 +109,7 @@ async fn watch(engine: &Engine) -> Result<()> {
             println!("{}", line(s));
         }
         if !list.is_empty()
-            && list
-                .iter()
-                .all(|s| matches!(s.status, Status::Seeding | Status::Finished | Status::Error))
+            && list.iter().all(|s| matches!(s.status, Status::Seeding | Status::Finished | Status::Error))
         {
             println!("all downloads are done");
             return Ok(());
@@ -141,17 +139,11 @@ fn line(s: &Snapshot) -> String {
 }
 
 fn arg(rest: &[String], i: usize) -> Result<&str> {
-    rest.get(i)
-        .filter(|a| !a.starts_with("--"))
-        .map(String::as_str)
-        .context("missing argument")
+    rest.get(i).filter(|a| !a.starts_with("--")).map(String::as_str).context("missing argument")
 }
 
 fn flag<'a>(rest: &'a [String], name: &str) -> Option<&'a str> {
-    rest.iter()
-        .position(|a| a == name)
-        .and_then(|i| rest.get(i + 1))
-        .map(String::as_str)
+    rest.iter().position(|a| a == name).and_then(|i| rest.get(i + 1)).map(String::as_str)
 }
 
 fn human(bytes: u64) -> String {
@@ -174,7 +166,5 @@ fn data_dir() -> Result<PathBuf> {
 }
 
 fn downloads_dir() -> PathBuf {
-    std::env::var_os("USERPROFILE")
-        .map(|h| PathBuf::from(h).join("Downloads"))
-        .unwrap_or_else(|| PathBuf::from("."))
+    std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join("Downloads")).unwrap_or_else(|| PathBuf::from("."))
 }
