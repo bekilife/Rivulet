@@ -3,6 +3,9 @@ name = "rivulet"
 version = "0.1.0"
 edition = "2024"
 description = "A light BitTorrent client for Windows"
+license = "MIT"
+repository = "https://github.com/bekilife/Rivulet"
+readme = "README.md"
 default-run = "rivulet"
 
 [dependencies]
