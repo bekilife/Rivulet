@@ -1,87 +1,88 @@
 <div align="center">
 
-<img src="assets/logo.png" width="96" alt="Rivulet">
+<img src="docs/hero.png" alt="Rivulet — a light BitTorrent client for Windows">
 
-# Rivulet
-
-**Лёгкий торрент-клиент для Windows**
-
-Один exe · нативный интерфейс · выбор файлов до начала загрузки
-
+[![Build](../../actions/workflows/build.yml/badge.svg)](../../actions/workflows/build.yml)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?logo=windows11&logoColor=white)
-![Win32](https://img.shields.io/badge/Win32-native-0078D4)
-![Rust](https://img.shields.io/badge/Rust-stable-000000?logo=rust)
+![Rust](https://img.shields.io/badge/Rust-Win32%20%C2%B7%20Direct2D-000000?logo=rust)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-[Возможности](#возможности) · [Сборка из исходников](#сборка-из-исходников) · [English](#english)
-
-<img src="docs/screenshot.png" width="280" alt="Список загрузок">
-&nbsp;
-<img src="docs/add-sheet.png" width="280" alt="Выбор файлов перед загрузкой">
-&nbsp;
-<img src="docs/stats.png" width="280" alt="Статистика">
+[**Download**](../../releases/latest) · [Features](#features) · [Build from source](#build-from-source) · [На русском](#на-русском)
 
 </div>
 
-## Возможности
+## Features
 
-- **Сначала выбор, потом загрузка.** Откройте `.torrent`, magnet-ссылку или перетащите файл в окно: Rivulet покажет список файлов, где можно отметить нужные, выбрать папку и дать загрузке своё название. Невыбранные файлы не появляются на диске даже в виде пустых заготовок.
-- **Понятные карточки.** Прогресс, скорость с цветом по уровню, время до конца. По клику — подробности: сиды и пиры, отдача, размер.
-- **Три режима вместо десятков настроек.** «Спокойный» бережёт компьютер и сеть, «Обычный» без ограничений скорости, «Максимум» — всё, что позволяет канал.
-- **Статистика.** Сколько скачано и роздано за 7 дней, 30 дней и всё время, рейтинг раздачи, график по дням и самые раздаваемые торренты. Итоги за 30 дней видны прямо под списком.
-- **Поиск и переименование.** Ctrl+F фильтрует список, F2 переименовывает загрузку.
-- **Работает в фоне.** Значок в трее со скоростью, уведомления о завершении, автозапуск вместе с Windows.
-- **Встраивается в Windows.** Открывает `.torrent` и magnet-ссылки (после выбора в «Приложениях по умолчанию»), всегда работает одна копия, светлая или тёмная тема — как в Windows. Своя строка заголовка с кнопками окна; окно перетаскивается, разворачивается и прилипает к краям как обычно.
-- **Без лишнего.** Один `rivulet.exe` около 7 МБ, без установщика, рантаймов и WebView. Данные — в `%LOCALAPPDATA%\Rivulet`.
+<img src="docs/features.png" alt="Rivulet features">
 
-## Горячие клавиши
+- **Choose before you download.** Open a `.torrent` file or a magnet link, tick the files you want, pick a folder and give the download your own name. Unticked files never appear on disk, not even as empty placeholders.
+- **Clear at a glance.** Progress, speed colored by level and time left; expand a card for peers, upload and size.
+- **Statistics built in.** Downloaded and shared over 7 days, 30 days or all time, share ratio, a daily chart and your most seeded torrents. A 30-day summary sits right under the list.
+- **Three modes, no knobs.** Calm, Steady or Surge instead of dozens of engine settings.
+- **Quiet in the tray.** Speeds in the tooltip, a notification when a download is done, optional start with Windows.
+- **At home on Windows.** Opens `.torrent` files and magnet links, keeps a single copy running, follows your light or dark theme, snaps and resizes like any window.
+- **Native and tiny.** One `rivulet.exe` of about 7 MB, ~35 MB of memory while downloading. No installer, no runtime, no WebView.
 
-| Клавиша | Действие |
+The interface is currently in Russian.
+
+## Screenshots
+
+| Downloads | Choosing files | Statistics |
+|---|---|---|
+| <img src="docs/screenshot.png" width="280" alt="Download list"> | <img src="docs/add-sheet.png" width="280" alt="Choosing files before downloading"> | <img src="docs/stats.png" width="280" alt="Statistics (sample data)"> |
+
+## Install
+
+Download `rivulet.exe` from the [latest release](../../releases/latest), put it in any folder and run it. To open `.torrent` files and magnet links with Rivulet, use **Settings → Open .torrent and magnet in Rivulet** and pick Rivulet in Windows *Default apps*.
+
+The exe is not code-signed, so SmartScreen may warn on first launch: *More info → Run anyway*.
+
+## Keyboard shortcuts
+
+| Key | Action |
 |---|---|
-| Ctrl+O | Открыть .torrent-файл |
-| Ctrl+V | Вставить magnet-ссылку |
-| Ctrl+F | Поиск |
-| F2 | Переименовать выбранную загрузку |
-| Пробел | Пауза / продолжить выбранные |
-| Delete | Убрать выбранные из списка |
-| Ctrl+A | Выбрать все |
+| Ctrl+O | Open a .torrent file |
+| Ctrl+V | Paste a magnet link |
+| Ctrl+F | Search |
+| F2 | Rename the selected download |
+| Space | Pause / resume selected |
+| Delete | Remove selected from the list |
+| Ctrl+A | Select all |
 
-## Сборка из исходников
+## Command line
 
-Нужны [Rust](https://rustup.rs) и Visual Studio Build Tools (C++).
+| Argument | What it does |
+|---|---|
+| `<file.torrent>` or `<magnet:…>` | Open a torrent (in the running copy, if any) |
+| `--minimized` | Start in the tray |
+| `--register` / `--unregister` | Register or remove Rivulet as a handler for .torrent and magnet |
+| `--quit` | Close the running copy cleanly |
+
+## Build from source
+
+Requires [Rust](https://rustup.rs) and Visual Studio Build Tools (C++).
 
 ```powershell
 cargo build --release
 ```
 
-Готовый файл — `target\release\rivulet.exe`. Ключи командной строки:
+The result is `target\release\rivulet.exe`. A console front end, `rivulet-cli`, is included for testing the engine.
 
-| Ключ | Что делает |
-|---|---|
-| `<файл.torrent>` или `<magnet:…>` | Открыть торрент (в уже запущенной копии) |
-| `--minimized` | Запуститься в трее |
-| `--register` / `--unregister` | Зарегистрировать или убрать Rivulet как обработчик .torrent и magnet |
-| `--quit` | Корректно закрыть запущенную копию |
+## How it works
 
-Для проверки движка без окна есть консольная версия `rivulet-cli`.
+- Engine: [librqbit](https://github.com/ikatson/rqbit) (Apache-2.0) — DHT, trackers, uTP, UPnP, session restore.
+- UI: plain Win32, Direct2D and DirectWrite, drawn by hand; no UI framework.
+- Unselected files are never created: pieces on their edges go to a sparse `.parts` file in `%LOCALAPPDATA%\Rivulet\parts`, removed together with the download.
+- Settings, session and statistics live in `%LOCALAPPDATA%\Rivulet`. No telemetry.
 
-## Как устроено
+BitTorrent is a way to move data. Download and share only what you have the right to.
 
-- Движок — [librqbit](https://github.com/ikatson/rqbit) (Apache-2.0): DHT, трекеры, uTP, UPnP, восстановление сессии.
-- Интерфейс — Win32, Direct2D и DirectWrite, без фреймворков.
-- Невыбранные файлы торрента не создаются: куски на их границах хранятся в служебном файле `%LOCALAPPDATA%\Rivulet\parts`, который удаляется вместе с загрузкой.
+## License
 
-BitTorrent — это протокол передачи данных. Скачивайте и раздавайте только то, на что у вас есть право.
+[MIT](LICENSE)
 
 ---
 
-## English
+## На русском
 
-**Rivulet** is a light BitTorrent client for Windows: a single native exe (~7 MB, Win32 + Direct2D, engine by librqbit).
-
-- Pick files, folder and a display name before a download starts; unselected files never appear on disk.
-- Clean download cards, three performance modes, search (Ctrl+F) and rename (F2).
-- Statistics: downloaded and uploaded over 7 days, 30 days and all time, share ratio, a daily chart and the most seeded torrents.
-- Tray icon, notifications, start with Windows, opens `.torrent` files and magnet links, single instance, follows the Windows theme and accent color.
-
-Build with `cargo build --release`. MIT licensed.
+**Rivulet** — лёгкий торрент-клиент для Windows: один нативный exe около 7 МБ (Rust, Win32, Direct2D, движок librqbit). Перед загрузкой можно выбрать файлы, папку и своё название, а невыбранные файлы не появляются на диске. Есть статистика скачанного и розданного, три режима работы, поиск и переименование, значок в трее, уведомления и автозапуск. Rivulet открывает `.torrent` и magnet-ссылки. Интерфейс на русском. [Скачать](../../releases/latest).
