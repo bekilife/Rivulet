@@ -33,12 +33,30 @@ pub enum Hit {
     SheetOk,
     SheetFiles,
     SheetBody,
+    Search,
+    SearchField,
+    SearchClear,
+    RenameField,
+    RenameCancel,
+    RenameOk,
+    RenameBody,
 }
 
 impl Hit {
     pub fn clickable(self) -> bool {
-        !matches!(self, Hit::SheetBody | Hit::SheetFiles)
+        !matches!(self, Hit::SheetBody | Hit::SheetFiles | Hit::RenameBody)
     }
+    pub fn is_text_field(self) -> bool {
+        matches!(self, Hit::SheetAlias | Hit::SearchField | Hit::RenameField)
+    }
+}
+
+/// The "rename download" dialog.
+pub struct Rename {
+    pub hash: String,
+    /// Name inside the torrent, used when the field is left empty.
+    pub original: String,
+    pub text: String,
 }
 
 pub enum SheetState {
@@ -91,6 +109,10 @@ pub struct Ui {
     pub hits: Vec<(Rect, Hit)>,
     pub spin: f32,
     pub caret_on: bool,
+    /// Search text while the search field is open.
+    pub search: Option<String>,
+    pub search_focus: bool,
+    pub rename: Option<Rename>,
     content_h: f32,
     view_h: f32,
     files_view: Rect,
@@ -117,6 +139,9 @@ impl Ui {
             hits: Vec::new(),
             spin: 0.0,
             caret_on: true,
+            search: None,
+            search_focus: false,
+            rename: None,
             content_h: 0.0,
             view_h: 0.0,
             files_view: Rect::default(),
@@ -144,6 +169,32 @@ impl Ui {
         }
         let max = (self.content_h - self.view_h).max(0.0);
         self.scroll = (self.scroll - delta).clamp(0.0, max);
+    }
+
+    /// Whether a download passes the search (by its own name or alias).
+    pub fn matches(&self, s: &Snapshot) -> bool {
+        let Some(q) = self.search.as_deref().map(str::trim).filter(|q| !q.is_empty()) else { return true };
+        let q = q.to_lowercase();
+        s.name.to_lowercase().contains(&q) || s.alias.as_deref().is_some_and(|a| a.to_lowercase().contains(&q))
+    }
+
+    /// Hashes of the downloads currently shown.
+    pub fn visible_hashes(&self) -> Vec<String> {
+        self.snaps.iter().filter(|s| self.matches(s)).map(|s| s.info_hash.clone()).collect()
+    }
+
+    /// The text field that has keyboard focus, if any.
+    pub fn focused_text(&mut self) -> Option<&mut String> {
+        if let Some(sheet) = self.sheet.as_mut() {
+            return sheet.alias_focus.then_some(&mut sheet.alias);
+        }
+        if let Some(r) = self.rename.as_mut() {
+            return Some(&mut r.text);
+        }
+        if self.search_focus {
+            return self.search.as_mut();
+        }
+        None
     }
 
     pub fn selected_snaps(&self) -> Vec<&Snapshot> {
@@ -177,7 +228,81 @@ impl Ui {
             // The sheet takes all input while it is open.
             self.hits.clear();
             self.paint_sheet(g, w, h);
+        } else if self.rename.is_some() {
+            self.hits.clear();
+            self.paint_rename(g, w, h);
         }
+    }
+
+    /// A one-line text field with placeholder and caret. Returns nothing;
+    /// the caller registers the hit.
+    fn text_field(&self, g: &Gfx, r: Rect, text: &str, placeholder: &str, focused: bool, left_pad: f32) {
+        let t = self.theme;
+        let ty = r.y + (r.h - g.normal_lh(14.0)) / 2.0;
+        let avail = r.w - left_pad - 12.0;
+        if text.is_empty() {
+            g.text(placeholder, 14.0).color(t.text3).width(avail).ellipsis().draw(r.x + left_pad, ty);
+        }
+        let shown = if text.is_empty() {
+            0.0
+        } else {
+            g.text(text, 14.0).color(t.text).width(avail).ellipsis().draw(r.x + left_pad, ty);
+            g.text(text, 14.0).measure().min(avail)
+        };
+        if focused && self.caret_on {
+            g.fill_rect(Rect::new(r.x + left_pad + shown + 1.0, r.y + (r.h - 20.0) / 2.0, 1.5, 20.0), t.text);
+        }
+    }
+
+    fn paint_rename(&mut self, g: &Gfx, w: f32, h: f32) {
+        let t = self.theme;
+        let Some(rename) = &self.rename else { return };
+        g.fill_rect(Rect::new(0.0, 0.0, w, h), t.scrim);
+        let pw = (w - 32.0).min(460.0);
+        let ph = 218.0;
+        let p = Rect::new((w - pw) / 2.0, (h - ph) / 2.0 - 40.0, pw, ph);
+        g.shadow(p, 16.0, 8.0, 30.0, Color(0.0, 0.0, 0.0, 0.25));
+        g.fill_rrect(p, 16.0, t.sheet);
+        g.stroke_rrect(p.inset(0.5), 15.5, 1.0, t.card_border);
+        let mut hits = vec![(p, Hit::RenameBody)];
+        let x = p.x + 22.0;
+        let iw = pw - 44.0;
+        g.text("Переименовать", 12.0).color(t.text2).draw(x, p.y + 20.0);
+        g.text(&format!("В торренте — {}", rename.original), 15.0)
+            .weight(600)
+            .color(t.text)
+            .width(iw)
+            .ellipsis()
+            .draw(x, p.y + 38.0);
+        let field = Rect::new(x, p.y + 72.0, iw, 38.0);
+        g.fill_rrect(field, 8.0, t.field);
+        g.stroke_rrect(field.inset(0.75), 7.25, 1.5, t.accent);
+        self.text_field(g, field, &rename.text, "Название в списке", true, 12.0);
+        hits.push((field, Hit::RenameField));
+        g.text("Оставьте пустым, чтобы вернуть название из торрента", 12.0)
+            .color(t.text3)
+            .width(iw)
+            .ellipsis()
+            .draw(x, field.y + field.h + 8.0);
+        let ok = Rect::new(p.x + pw - 22.0 - 130.0, p.y + ph - 22.0 - 38.0, 130.0, 38.0);
+        let cancel = Rect::new(ok.x - 10.0 - 110.0, ok.y, 110.0, 38.0);
+        for (r, label, hit, primary) in
+            [(cancel, "Отмена", Hit::RenameCancel, false), (ok, "Сохранить", Hit::RenameOk, true)]
+        {
+            let (bg, fg) = if primary { (t.accent, t.on_accent) } else { (t.chip, t.text) };
+            g.fill_rrect(r, 8.0, bg);
+            if !primary {
+                g.stroke_rrect(r.inset(0.5), 7.5, 1.0, t.chip_border);
+            }
+            if self.pressed == Some(hit) {
+                g.fill_rrect(r, 8.0, Color(0.0, 0.0, 0.0, 0.12));
+            } else if self.hover == Some(hit) {
+                g.fill_rrect(r, 8.0, if primary { Color::white(0.12) } else { t.hover });
+            }
+            g.text(label, 14.0).weight(600).color(fg).width(r.w).align(Align::Center).draw(r.x, r.y + (r.h - g.normal_lh(14.0)) / 2.0);
+            hits.push((r, hit));
+        }
+        self.hits.extend(hits);
     }
 
     fn button_bg(&self, g: &Gfx, hit: Hit, r: Rect, rad: f32) {
@@ -205,9 +330,35 @@ impl Ui {
             let c = if enabled { t.text } else { t.text3 };
             icons::draw(g, icon, r.x + 9.0, r.y + 7.0, 22.0, 1.7, c);
         }
-        g.text("Rivulet", 18.0).weight(650).color(t.text).draw(group.x + group.w + 14.0, 12.0 + (44.0 - g.normal_lh(18.0)) / 2.0);
-
         let s = Rect::new(w - PAD - 44.0, 12.0, 44.0, 44.0);
+
+        if let Some(q) = &self.search {
+            // Search field between the button group and settings.
+            let f = Rect::new(group.x + group.w + 10.0, 12.0, s.x - 10.0 - (group.x + group.w + 10.0), 44.0);
+            g.fill_rrect(f, 22.0, t.card);
+            if self.search_focus {
+                g.stroke_rrect(f.inset(0.75), 21.25, 1.5, t.accent);
+            } else {
+                g.stroke_rrect(f.inset(0.5), 21.5, 1.0, t.card_border);
+            }
+            icons::draw(g, icons::SEARCH, f.x + 13.0, f.y + 12.0, 20.0, 1.7, t.text2);
+            let field = Rect::new(f.x, f.y, f.w - 40.0, f.h);
+            self.text_field(g, field, q, "Поиск по названию", self.search_focus, 42.0);
+            self.hits.push((f, Hit::SearchField));
+            let c = Rect::new(f.x + f.w - 40.0, f.y + 6.0, 32.0, 32.0);
+            self.button_bg(g, Hit::SearchClear, c, 16.0);
+            icons::draw(g, icons::CLOSE, c.x + 7.0, c.y + 7.0, 18.0, 1.7, t.text2);
+            self.hits.push((c, Hit::SearchClear));
+        } else {
+            g.text("Rivulet", 18.0).weight(650).color(t.text).draw(group.x + group.w + 14.0, 12.0 + (44.0 - g.normal_lh(18.0)) / 2.0);
+            let b = Rect::new(s.x - 10.0 - 44.0, 12.0, 44.0, 44.0);
+            g.fill_rrect(b, 22.0, t.card);
+            g.stroke_rrect(b.inset(0.5), 21.5, 1.0, t.card_border);
+            self.button_bg(g, Hit::Search, b.inset(4.0), 18.0);
+            self.hits.push((b, Hit::Search));
+            icons::draw(g, icons::SEARCH, b.x + 11.0, b.y + 11.0, 22.0, 1.7, t.text);
+        }
+
         g.fill_rrect(s, 22.0, t.card);
         g.stroke_rrect(s.inset(0.5), 21.5, 1.0, t.card_border);
         self.button_bg(g, Hit::Settings, s.inset(4.0), 18.0);
@@ -250,15 +401,28 @@ impl Ui {
             .draw((w - 320.0) / 2.0, cy + 64.0);
             return;
         }
-        let heights: Vec<f32> = self.snaps.iter().map(|s| self.card_height(s)).collect();
+        let shown: Vec<usize> = (0..self.snaps.len()).filter(|&i| self.matches(&self.snaps[i])).collect();
+        if shown.is_empty() {
+            self.content_h = 0.0;
+            self.scroll = 0.0;
+            let q = self.search.clone().unwrap_or_default();
+            g.text(&format!("Ничего не найдено по запросу «{}»", q.trim()), 14.0)
+                .color(t.text2)
+                .width(w - 64.0)
+                .align(Align::Center)
+                .ellipsis()
+                .draw(32.0, top + 40.0);
+            return;
+        }
+        let heights: Vec<f32> = shown.iter().map(|&i| self.card_height(&self.snaps[i])).collect();
         self.content_h = heights.iter().sum::<f32>() + GAP * heights.len() as f32 + 8.0;
         let max = (self.content_h - self.view_h).max(0.0);
         self.scroll = self.scroll.clamp(0.0, max);
 
         g.push_clip_rect(Rect::new(0.0, top, w, h - top));
         let mut y = top + 2.0 - self.scroll;
-        for i in 0..self.snaps.len() {
-            let ch = heights[i];
+        for (k, &i) in shown.iter().enumerate() {
+            let ch = heights[k];
             if y + ch >= top && y <= h {
                 let r = Rect::new(PAD, y, w - 2.0 * PAD, ch);
                 self.paint_card(g, i, r);

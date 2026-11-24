@@ -26,7 +26,8 @@ use windows::{
                 SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify,
             },
             WindowsAndMessaging::{
-                AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG, SendMessageTimeoutW,
+                AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, PostMessageW, SMTO_ABORTIFHUNG,
+                SendMessageTimeoutW,
                 WM_COPYDATA,
             },
         },
@@ -83,6 +84,24 @@ pub fn forward_to_running(class: &str, sources: &[String]) -> bool {
     }
     false
 }
+
+/// Asks the running copy to quit the normal way (saving its session).
+/// Returns false if no copy is running.
+pub fn ask_running_to_quit(class: &str) -> bool {
+    let class = HSTRING::from(class);
+    unsafe {
+        match FindWindowW(&class, PCWSTR::null()) {
+            Ok(hwnd) if !hwnd.is_invalid() => {
+                let _ = PostMessageW(Some(hwnd), WM_QUIT_APP, WPARAM(0), LPARAM(0));
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Window message that makes Rivulet exit (sent by `rivulet --quit`).
+pub const WM_QUIT_APP: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 3;
 
 fn send_sources(hwnd: HWND, sources: &[String]) {
     let text: Vec<u16> = sources.join("\n").encode_utf16().collect();

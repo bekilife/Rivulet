@@ -41,7 +41,7 @@ use windows::{
             HiDpi::{GetDpiForSystem, GetDpiForWindow},
             Input::KeyboardAndMouse::{
                 GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_BACK,
-                VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_RETURN, VK_SPACE,
+                VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_F2, VK_RETURN, VK_SPACE,
             },
             Shell::{DragAcceptFiles, DragFinish, DragQueryFileW, HDROP},
             WindowsAndMessaging::*,
@@ -185,6 +185,11 @@ fn main() {
     // One copy per data folder: a second launch (say, a double-clicked
     // .torrent) hands its arguments to the running one and quits.
     let (mutex_name, class_name) = shell::instance_names(&data_dir);
+    // `rivulet --quit`: close the running copy cleanly (for updates).
+    if std::env::args().any(|a| a == "--quit") {
+        shell::ask_running_to_quit(&class_name);
+        return;
+    }
     if !shell::claim_instance(&mutex_name) {
         if shell::forward_to_running(&class_name, &args) {
             return;
@@ -606,6 +611,29 @@ fn ctrl_down() -> bool {
 }
 
 fn click(a: &mut App, hit: Hit) -> Action {
+    if a.ui.rename.is_some() {
+        match hit {
+            Hit::RenameOk => save_rename(a),
+            Hit::RenameCancel => a.ui.rename = None,
+            _ => {}
+        }
+        invalidate(a.hwnd);
+        return Action::None;
+    }
+    if !matches!(hit, Hit::SearchField | Hit::SearchClear | Hit::Search) {
+        a.ui.search_focus = false;
+    }
+    match hit {
+        Hit::Search | Hit::SearchField => {
+            open_search(a);
+            return Action::None;
+        }
+        Hit::SearchClear => {
+            close_search(a);
+            return Action::None;
+        }
+        _ => {}
+    }
     let ui = &mut a.ui;
     if let Some(sheet) = ui.sheet.as_mut() {
         if hit != Hit::SheetAlias {
@@ -664,6 +692,50 @@ fn click(a: &mut App, hit: Hit) -> Action {
     }
     invalidate(a.hwnd);
     Action::None
+}
+
+fn start_caret(a: &mut App) {
+    a.ui.caret_on = true;
+    unsafe {
+        SetTimer(Some(a.hwnd), T_CARET, 530, None);
+    }
+}
+
+fn open_search(a: &mut App) {
+    if a.ui.search.is_none() {
+        a.ui.search = Some(String::new());
+    }
+    a.ui.search_focus = true;
+    a.ui.scroll = 0.0;
+    start_caret(a);
+    invalidate(a.hwnd);
+}
+
+fn close_search(a: &mut App) {
+    a.ui.search = None;
+    a.ui.search_focus = false;
+    invalidate(a.hwnd);
+}
+
+fn start_rename(a: &mut App, hash: &str) {
+    let Some(s) = a.ui.snaps.iter().find(|s| s.info_hash == hash) else { return };
+    a.ui.rename =
+        Some(ui::Rename { hash: s.info_hash.clone(), original: s.name.clone(), text: s.alias.clone().unwrap_or_default() });
+    a.ui.search_focus = false;
+    a.ui.hover = None;
+    start_caret(a);
+    invalidate(a.hwnd);
+}
+
+fn save_rename(a: &mut App) {
+    let Some(r) = a.ui.rename.take() else { return };
+    match a.engine.set_alias(&r.hash, &r.text) {
+        Ok(()) => {
+            refresh(a);
+            notify(a, if r.text.trim().is_empty() { "Название из торрента возвращено" } else { "Переименовано" });
+        }
+        Err(e) => notify(a, format!("Не удалось сохранить название: {e}")),
+    }
 }
 
 fn toggle_selected(a: &mut App) {
@@ -883,6 +955,7 @@ fn run_action(hwnd: HWND, action: Action) {
                     Item::Cmd(1, if running { "Пауза" } else { "Продолжить" }),
                     Item::Cmd(2, "Открыть папку"),
                     Item::Cmd(3, if expanded { "Свернуть" } else { "Подробнее" }),
+                    Item::Cmd(6, "Переименовать…\tF2"),
                     Item::Sep,
                     Item::Cmd(4, "Убрать из списка"),
                     Item::Cmd(5, "Убрать и удалить файлы…"),
@@ -901,6 +974,9 @@ fn run_action(hwnd: HWND, action: Action) {
                     });
                 }
                 2 => platform::open_in_explorer(&s.folder),
+                6 => {
+                    with(|a| start_rename(a, &s.info_hash));
+                }
                 3 => {
                     with(|a| {
                         if !a.ui.expanded.remove(&s.info_hash) {
@@ -1094,6 +1170,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 with(refresh);
                 LRESULT(0)
             }
+            shell::WM_QUIT_APP => {
+                let _ = DestroyWindow(hwnd);
+                LRESULT(0)
+            }
             WM_COPYDATA => {
                 // From a second copy of the app; handled via the event queue
                 // so it also works while a menu or dialog is open.
@@ -1154,6 +1234,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                         SetCapture(hwnd);
                     } else if let Some(s) = a.ui.sheet.as_mut() {
                         s.alias_focus = false;
+                    } else {
+                        a.ui.search_focus = false;
                     }
                     invalidate(hwnd);
                     Action::None
@@ -1207,31 +1289,73 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             WM_KEYDOWN => {
                 let ctrl = ctrl_down();
                 let key = wp.0 as u16;
+                let is = |k: windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY| key == k.0;
                 let action = with(|a| {
-                    if let Some(sheet) = a.ui.sheet.as_mut() {
-                        match key {
-                            k if k == VK_ESCAPE.0 => close_sheet(a),
-                            k if k == VK_RETURN.0 => start_download(a),
-                            k if k == VK_BACK.0 && sheet.alias_focus => {
-                                sheet.alias.pop();
-                                a.ui.caret_on = true;
+                    // Editing keys for whichever text field has focus.
+                    if let Some(text) = a.ui.focused_text() {
+                        if is(VK_BACK) {
+                            if ctrl {
+                                let keep = text.trim_end().rfind(' ').map_or(0, |i| i + 1);
+                                text.truncate(keep);
+                            } else {
+                                text.pop();
                             }
-                            k if k == b'V' as u16 && ctrl && sheet.alias_focus => {
-                                if let Some(t) = platform::clipboard_text(hwnd) {
-                                    sheet.alias.push_str(t.lines().next().unwrap_or("").trim());
-                                }
+                        } else if key == b'V' as u16 && ctrl {
+                            if let Some(t) = platform::clipboard_text(hwnd) {
+                                text.push_str(t.lines().next().unwrap_or("").trim());
                             }
-                            _ => {}
+                        }
+                        a.ui.caret_on = true;
+                    }
+                    if a.ui.sheet.is_some() {
+                        if is(VK_ESCAPE) {
+                            close_sheet(a);
+                        } else if is(VK_RETURN) {
+                            start_download(a);
+                        }
+                        invalidate(hwnd);
+                        return Action::None;
+                    }
+                    if a.ui.rename.is_some() {
+                        if is(VK_ESCAPE) {
+                            a.ui.rename = None;
+                        } else if is(VK_RETURN) {
+                            save_rename(a);
+                        }
+                        invalidate(hwnd);
+                        return Action::None;
+                    }
+                    if a.ui.search_focus {
+                        if is(VK_ESCAPE) {
+                            if a.ui.search.as_deref().is_some_and(|q| !q.is_empty()) {
+                                a.ui.search = Some(String::new());
+                            } else {
+                                close_search(a);
+                            }
+                        } else if is(VK_RETURN) {
+                            a.ui.search_focus = false;
                         }
                         invalidate(hwnd);
                         return Action::None;
                     }
                     match key {
-                        k if k == VK_ESCAPE.0 => a.ui.selected.clear(),
-                        k if k == VK_DELETE.0 => return Action::ConfirmRemove,
-                        k if k == VK_SPACE.0 => toggle_selected(a),
+                        _ if is(VK_ESCAPE) => {
+                            if a.ui.selected.is_empty() && a.ui.search.is_some() {
+                                close_search(a);
+                            }
+                            a.ui.selected.clear();
+                        }
+                        _ if is(VK_DELETE) => return Action::ConfirmRemove,
+                        _ if is(VK_SPACE) => toggle_selected(a),
+                        _ if is(VK_F2) => {
+                            if a.ui.selected.len() == 1 {
+                                let h = a.ui.selected.iter().next().cloned().unwrap_or_default();
+                                start_rename(a, &h);
+                            }
+                        }
+                        k if k == b'F' as u16 && ctrl => open_search(a),
                         k if k == b'A' as u16 && ctrl => {
-                            a.ui.selected = a.ui.snaps.iter().map(|s| s.info_hash.clone()).collect();
+                            a.ui.selected = a.ui.visible_hashes().into_iter().collect();
                         }
                         k if k == b'O' as u16 && ctrl => return Action::OpenFiles,
                         _ => {}
@@ -1239,7 +1363,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     invalidate(hwnd);
                     Action::None
                 });
-                if key == b'V' as u16 && ctrl && with(|a| a.ui.sheet.is_none()).unwrap_or(false) {
+                let typing = with(|a| a.ui.sheet.is_some() || a.ui.rename.is_some() || a.ui.search_focus).unwrap_or(true);
+                if key == b'V' as u16 && ctrl && !typing {
                     paste(hwnd);
                 } else if let Some(action) = action {
                     run_action(hwnd, action);
@@ -1249,13 +1374,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             WM_CHAR => {
                 let c = wp.0 as u32;
                 with(|a| {
-                    if let Some(s) = a.ui.sheet.as_mut().filter(|s| s.alias_focus)
-                        && c >= 0x20
+                    if c >= 0x20
                         && c != 0x7F
                         && let Some(ch) = char::from_u32(c)
-                        && s.alias.chars().count() < 120
+                        && let Some(text) = a.ui.focused_text()
+                        && text.chars().count() < 120
                     {
-                        s.alias.push(ch);
+                        text.push(ch);
                         a.ui.caret_on = true;
                         invalidate(hwnd);
                     }
@@ -1286,7 +1411,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
             }
             WM_SETCURSOR => {
                 if (lp.0 & 0xFFFF) as u32 == HTCLIENT
-                    && with(|a| a.ui.hover == Some(Hit::SheetAlias)).unwrap_or(false)
+                    && with(|a| a.ui.hover.is_some_and(Hit::is_text_field)).unwrap_or(false)
                     && let Ok(c) = LoadCursorW(None, IDC_IBEAM)
                 {
                     SetCursor(Some(c));
