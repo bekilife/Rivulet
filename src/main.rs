@@ -10,6 +10,7 @@ mod icons;
 mod platform;
 mod shell;
 mod theme;
+mod tray;
 mod ui;
 
 use std::{
@@ -69,7 +70,7 @@ const T_NOTICE: usize = 4;
 
 enum Event {
     Preview { token: u64, result: Result<Draft, String> },
-    Added { token: u64, result: Result<String, String> },
+    Added { token: u64, result: Result<(String, String), String> },
     Failed(String),
     Refresh,
     /// Sources handed over by a second copy of the app.
@@ -89,9 +90,22 @@ fn post(ev: Event) {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 struct Prefs {
     precise: bool,
+    /// The close button hides the window to the tray instead of quitting.
+    close_to_tray: bool,
+    /// Notify when a download finishes or fails.
+    notify_done: bool,
+    /// The "still running in the tray" hint was shown once.
+    tray_hint_shown: bool,
+}
+
+impl Default for Prefs {
+    fn default() -> Self {
+        Prefs { precise: false, close_to_tray: true, notify_done: true, tray_hint_shown: false }
+    }
 }
 
 struct App {
@@ -108,6 +122,14 @@ struct App {
     data_dir: PathBuf,
     mouse: (f32, f32),
     tracking: bool,
+    prefs: Prefs,
+    /// Status of each download at the last refresh, to spot finished ones.
+    last_status: std::collections::HashMap<String, Status>,
+    /// Added in this session and not finished yet: small ones can finish
+    /// between two refreshes without ever showing as downloading.
+    fresh: std::collections::HashSet<String>,
+    /// Download the last notification was about (clicking it selects it).
+    notified: Option<String>,
     #[cfg(debug_assertions)]
     dump: Option<PathBuf>,
 }
@@ -132,6 +154,7 @@ enum Action {
     CardMenu(usize),
     PickFolder,
     ConfirmRemove,
+    TrayMenu,
 }
 
 fn main() {
@@ -156,6 +179,9 @@ fn main() {
         _ => {}
     }
 
+    let minimized = args.iter().any(|a| a == "--minimized");
+    let args: Vec<String> = args.into_iter().filter(|a| !a.starts_with("--")).collect();
+
     // One copy per data folder: a second launch (say, a double-clicked
     // .torrent) hands its arguments to the running one and quits.
     let (mutex_name, class_name) = shell::instance_names(&data_dir);
@@ -175,6 +201,11 @@ fn main() {
         && let Ok(exe) = std::env::current_exe()
     {
         let _ = shell::register(&exe);
+    }
+    if !cfg!(debug_assertions)
+        && let Ok(exe) = std::env::current_exe()
+    {
+        shell::refresh_autostart(&exe);
     }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
     let engine = match rt.block_on(Engine::start(&data_dir, &platform::downloads_folder())) {
@@ -231,12 +262,17 @@ fn main() {
         DragAcceptFiles(hwnd, true);
         SetTimer(Some(hwnd), T_REFRESH, 1000, None);
     }
+    tray::add(hwnd, "Rivulet");
 
     let app = App {
         hwnd,
         gfx: Gfx::new().expect("Direct2D"),
         surf: Surface::new(),
         ui: Ui::new(theme, prefs.precise),
+        prefs,
+        last_status: Default::default(),
+        fresh: Default::default(),
+        notified: None,
         engine,
         rt,
         queue: VecDeque::new(),
@@ -256,7 +292,9 @@ fn main() {
     });
 
     unsafe {
-        let _ = ShowWindow(hwnd, SW_SHOW);
+        if !minimized {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             let _ = TranslateMessage(&msg);
@@ -296,9 +334,9 @@ fn invalidate(hwnd: HWND) {
     }
 }
 
-fn save_prefs(a: &App) {
-    let prefs = Prefs { precise: a.ui.precise };
-    if let Ok(b) = serde_json::to_vec_pretty(&prefs) {
+fn save_prefs(a: &mut App) {
+    a.prefs.precise = a.ui.precise;
+    if let Ok(b) = serde_json::to_vec_pretty(&a.prefs) {
         let _ = std::fs::write(a.data_dir.join("ui.json"), b);
     }
 }
@@ -308,7 +346,75 @@ fn refresh(a: &mut App) {
     let hashes: std::collections::HashSet<String> = a.ui.snaps.iter().map(|s| s.info_hash.clone()).collect();
     a.ui.selected.retain(|h| hashes.contains(h));
     a.ui.expanded.retain(|h| hashes.contains(h));
+    announce_changes(a);
+    tray::set_tip(a.hwnd, &tray_tip(&a.ui.snaps));
     invalidate(a.hwnd);
+}
+
+/// Notifies about downloads that finished or failed since the last refresh.
+/// A download only counts as finished if we saw it downloading, so restoring
+/// the session or re-checking files stays quiet.
+fn announce_changes(a: &mut App) {
+    let mut done: Vec<(String, String)> = Vec::new();
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for s in &a.ui.snaps {
+        let title = s.alias.clone().unwrap_or_else(|| s.name.clone());
+        let prev = a.last_status.get(&s.info_hash).copied();
+        let finished = matches!(s.status, Status::Seeding | Status::Finished);
+        if finished && a.fresh.remove(&s.info_hash) && prev != Some(Status::Downloading) {
+            done.push((s.info_hash.clone(), title));
+            continue;
+        }
+        match (prev, s.status) {
+            (Some(Status::Downloading), Status::Seeding | Status::Finished) => done.push((s.info_hash.clone(), title)),
+            (Some(prev), Status::Error) if prev != Status::Error => failed.push((s.info_hash.clone(), title)),
+            _ => {}
+        }
+    }
+    a.last_status = a.ui.snaps.iter().map(|s| (s.info_hash.clone(), s.status)).collect();
+    if !a.prefs.notify_done {
+        return;
+    }
+    let (title, text, hash) = match (done.as_slice(), failed.as_slice()) {
+        ([], []) => return,
+        ([(h, name)], []) => ("Загрузка завершена".to_string(), name.clone(), Some(h.clone())),
+        (d, []) => (
+            format!("Завершено загрузок: {}", d.len()),
+            d.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", "),
+            None,
+        ),
+        (_, [(h, name), ..]) => ("Ошибка загрузки".to_string(), name.clone(), Some(h.clone())),
+    };
+    a.notified = hash;
+    tray::notify(a.hwnd, &title, &text);
+}
+
+fn tray_tip(snaps: &[rivulet::engine::Snapshot]) -> String {
+    let active: Vec<_> = snaps.iter().filter(|s| s.status == Status::Downloading).collect();
+    if active.is_empty() {
+        return if snaps.is_empty() { "Rivulet".into() } else { "Rivulet — активных загрузок нет".into() };
+    }
+    let down: u64 = active.iter().map(|s| s.down_bps).sum();
+    let up: u64 = snaps.iter().map(|s| s.up_bps).sum();
+    format!(
+        "Rivulet — загрузок: {}\n↓ {}  ↑ {}",
+        active.len(),
+        fmt::speed(down, false),
+        fmt::speed(up, false)
+    )
+}
+
+/// Brings the window back from the tray, the taskbar or behind other windows.
+fn show_window(hwnd: HWND) {
+    unsafe {
+        if !IsWindowVisible(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_SHOW);
+        }
+        if IsIconic(hwnd).as_bool() {
+            let _ = ShowWindow(hwnd, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(hwnd);
+    }
 }
 
 fn notify(a: &mut App, text: impl Into<String>) {
@@ -438,7 +544,7 @@ fn start_download(a: &mut App) {
             .await
             .map(|_| {
                 let _ = engine.set_download_dir(&folder);
-                draft.name.clone()
+                (draft.name.clone(), draft.info_hash.clone())
             })
             .map_err(|e| russian_error(&e.to_string()));
         post(Event::Added { token, result });
@@ -468,7 +574,8 @@ fn handle_events(a: &mut App) {
                     continue;
                 }
                 match result {
-                    Ok(name) => {
+                    Ok((name, hash)) => {
+                        a.fresh.insert(hash);
                         close_sheet(a);
                         refresh(a);
                         notify(a, format!("Добавлено: {name}"));
@@ -484,12 +591,7 @@ fn handle_events(a: &mut App) {
             Event::Failed(e) => notify(a, e),
             Event::Refresh => refresh(a),
             Event::Open(sources) => {
-                unsafe {
-                    if IsIconic(a.hwnd).as_bool() {
-                        let _ = ShowWindow(a.hwnd, SW_RESTORE);
-                    }
-                    let _ = SetForegroundWindow(a.hwnd);
-                }
+                show_window(a.hwnd);
                 add_sources(a, sources);
             }
         }
@@ -640,11 +742,13 @@ fn run_action(hwnd: HWND, action: Action) {
             }
         }
         Action::SettingsMenu => {
-            let Some((profile, precise, folder)) = with(|a| {
+            let Some((profile, precise, folder, close_to_tray, notify_done)) = with(|a| {
                 (
                     a.engine.profile(),
                     a.ui.precise,
                     a.engine.download_dir().unwrap_or_else(platform::downloads_folder),
+                    a.prefs.close_to_tray,
+                    a.prefs.notify_done,
                 )
             }) else {
                 return;
@@ -675,6 +779,10 @@ fn run_action(hwnd: HWND, action: Action) {
                     Item::Sep,
                     Item::Cmd(23, assoc_label),
                     if registered { Item::Cmd(24, "Отвязать .torrent и magnet") } else { Item::Sep },
+                    Item::Sep,
+                    Item::Check(30, "Запускать вместе с Windows", shell::autostart_enabled()),
+                    Item::Check(31, "При закрытии сворачивать в трей", close_to_tray),
+                    Item::Check(32, "Уведомлять о завершении загрузок", notify_done),
                 ],
             );
             match cmd {
@@ -707,6 +815,61 @@ fn run_action(hwnd: HWND, action: Action) {
                     shell::unregister();
                     with(|a| notify(a, "Rivulet больше не открывает .torrent и magnet"));
                 }
+                30 => {
+                    let on = !shell::autostart_enabled();
+                    let r = shell::set_autostart(&exe, on);
+                    with(|a| {
+                        notify(
+                            a,
+                            match (r, on) {
+                                (Err(e), _) => format!("Не удалось изменить автозапуск: {e}"),
+                                (Ok(()), true) => "Rivulet будет запускаться в трее вместе с Windows".into(),
+                                (Ok(()), false) => "Автозапуск выключен".into(),
+                            },
+                        )
+                    });
+                }
+                31 | 32 => {
+                    with(|a| {
+                        if cmd == 31 {
+                            a.prefs.close_to_tray = !a.prefs.close_to_tray;
+                        } else {
+                            a.prefs.notify_done = !a.prefs.notify_done;
+                        }
+                        save_prefs(a);
+                    });
+                }
+                _ => {}
+            }
+        }
+        Action::TrayMenu => {
+            let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
+            let cmd = platform::popup(
+                hwnd,
+                &[
+                    Item::Cmd(1, if visible { "Скрыть Rivulet" } else { "Открыть Rivulet" }),
+                    Item::Cmd(2, "Открыть .torrent-файл…"),
+                    Item::Cmd(3, "Вставить magnet-ссылку"),
+                    Item::Sep,
+                    Item::Cmd(9, "Выход"),
+                ],
+            );
+            match cmd {
+                1 if visible => unsafe {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                },
+                1 => show_window(hwnd),
+                2 => {
+                    show_window(hwnd);
+                    run_action(hwnd, Action::OpenFiles);
+                }
+                3 => {
+                    show_window(hwnd);
+                    paste(hwnd);
+                }
+                9 => unsafe {
+                    let _ = DestroyWindow(hwnd);
+                },
                 _ => {}
             }
         }
@@ -813,6 +976,11 @@ fn paste(hwnd: HWND) {
     });
 }
 
+fn taskbar_created() -> u32 {
+    static MSG: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *MSG.get_or_init(|| unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) })
+}
+
 fn logical(hwnd: HWND, lp: LPARAM) -> (f32, f32) {
     let s = scale_of(hwnd);
     let x = (lp.0 & 0xFFFF) as i16 as f32;
@@ -867,6 +1035,63 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     }
                     _ => {}
                 }
+                LRESULT(0)
+            }
+            WM_CLOSE => {
+                let hide = with(|a| {
+                    if !a.prefs.close_to_tray {
+                        return false;
+                    }
+                    if !a.prefs.tray_hint_shown {
+                        a.prefs.tray_hint_shown = true;
+                        save_prefs(a);
+                        tray::notify(
+                            hwnd,
+                            "Rivulet продолжает работать",
+                            "Загрузки идут в фоне. Значок — в области уведомлений, выход — в его меню.",
+                        );
+                    }
+                    true
+                })
+                .unwrap_or(true);
+                if hide {
+                    let _ = ShowWindow(hwnd, SW_HIDE);
+                } else {
+                    let _ = DestroyWindow(hwnd);
+                }
+                LRESULT(0)
+            }
+            tray::WM_TRAY => {
+                const NIN_SELECT: u32 = WM_USER;
+                const NIN_KEYSELECT: u32 = WM_USER + 1;
+                const NIN_BALLOONUSERCLICK: u32 = WM_USER + 5;
+                match (lp.0 & 0xFFFF) as u32 {
+                    WM_LBUTTONUP | NIN_SELECT | NIN_KEYSELECT => {
+                        if IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() && GetForegroundWindow() == hwnd {
+                            let _ = ShowWindow(hwnd, SW_HIDE);
+                        } else {
+                            show_window(hwnd);
+                        }
+                    }
+                    WM_CONTEXTMENU | WM_RBUTTONUP => run_action(hwnd, Action::TrayMenu),
+                    NIN_BALLOONUSERCLICK => {
+                        show_window(hwnd);
+                        with(|a| {
+                            if let Some(h) = a.notified.take() {
+                                a.ui.selected.clear();
+                                a.ui.selected.insert(h);
+                                invalidate(hwnd);
+                            }
+                        });
+                    }
+                    _ => {}
+                }
+                LRESULT(0)
+            }
+            m if m == taskbar_created() => {
+                // Explorer restarted: the tray icon has to be added again.
+                tray::add(hwnd, "Rivulet");
+                with(refresh);
                 LRESULT(0)
             }
             WM_COPYDATA => {
@@ -1097,6 +1322,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 DefWindowProcW(hwnd, msg, wp, lp)
             }
             WM_DESTROY => {
+                tray::remove(hwnd);
                 PostQuitMessage(0);
                 LRESULT(0)
             }

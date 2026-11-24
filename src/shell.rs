@@ -339,3 +339,32 @@ pub fn defaults(exe: &Path) -> (bool, bool) {
     let is_me = |c: Option<String>| c.is_some_and(|c| c.to_lowercase().contains(&me));
     (is_me(handler_command(".torrent", false)), is_me(handler_command("magnet", true)))
 }
+
+// ------------------------------------------------------------ autostart
+
+const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
+
+fn autostart_command(exe: &Path) -> String {
+    format!("\"{}\" --minimized", exe.display())
+}
+
+pub fn autostart_enabled() -> bool {
+    get(RUN_KEY, Some(APP)).is_some()
+}
+
+/// Starts Rivulet in the tray when the user signs in.
+pub fn set_autostart(exe: &Path, on: bool) -> windows::core::Result<()> {
+    if on {
+        set(RUN_KEY, Some(APP), &autostart_command(exe))
+    } else {
+        delete_value(RUN_KEY, APP);
+        Ok(())
+    }
+}
+
+/// Points an existing autostart entry at `exe` if it was moved.
+pub fn refresh_autostart(exe: &Path) {
+    if get(RUN_KEY, Some(APP)).is_some_and(|v| v != autostart_command(exe)) {
+        let _ = set(RUN_KEY, Some(APP), &autostart_command(exe));
+    }
+}
