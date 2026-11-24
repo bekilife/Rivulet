@@ -8,6 +8,7 @@ mod fmt;
 mod gfx;
 mod icons;
 mod platform;
+mod shell;
 mod theme;
 mod ui;
 
@@ -71,6 +72,8 @@ enum Event {
     Added { token: u64, result: Result<String, String> },
     Failed(String),
     Refresh,
+    /// Sources handed over by a second copy of the app.
+    Open(Vec<String>),
 }
 
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
@@ -139,6 +142,40 @@ fn main() {
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Rivulet")))
         .unwrap_or_else(|| PathBuf::from("Rivulet"));
+    let args: Vec<String> = std::env::args().skip(1).filter(|a| !a.trim().is_empty()).collect();
+    // `rivulet --register` / `--unregister`: for installers and scripts.
+    match args.first().map(String::as_str) {
+        Some("--register") => {
+            let ok = std::env::current_exe().is_ok_and(|exe| shell::register(&exe).is_ok());
+            std::process::exit(if ok { 0 } else { 1 });
+        }
+        Some("--unregister") => {
+            shell::unregister();
+            return;
+        }
+        _ => {}
+    }
+
+    // One copy per data folder: a second launch (say, a double-clicked
+    // .torrent) hands its arguments to the running one and quits.
+    let (mutex_name, class_name) = shell::instance_names(&data_dir);
+    if !shell::claim_instance(&mutex_name) {
+        if shell::forward_to_running(&class_name, &args) {
+            return;
+        }
+        let text = wide("Rivulet уже запущен, но его окно не отвечает.");
+        unsafe {
+            MessageBoxW(None, PCWSTR(text.as_ptr()), w!("Rivulet"), MB_ICONWARNING);
+        }
+        return;
+    }
+    // Keep the registered paths pointing at this exe if it was moved.
+    if !cfg!(debug_assertions)
+        && shell::is_registered()
+        && let Ok(exe) = std::env::current_exe()
+    {
+        let _ = shell::register(&exe);
+    }
     let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("tokio runtime");
     let engine = match rt.block_on(Engine::start(&data_dir, &platform::downloads_folder())) {
         Ok(e) => Arc::new(e),
@@ -156,7 +193,8 @@ fn main() {
         .unwrap_or_default();
 
     let hinst = unsafe { GetModuleHandleW(None).unwrap_or_default() };
-    let class = w!("RivuletWindow");
+    let class_w = wide(&class_name);
+    let class = PCWSTR(class_w.as_ptr());
     let wc = WNDCLASSEXW {
         cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
         style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
@@ -214,10 +252,7 @@ fn main() {
     APP.with(|a| *a.borrow_mut() = Some(app));
     with(|a| {
         refresh(a);
-        let args: Vec<String> = std::env::args().skip(1).collect();
-        if !args.is_empty() {
-            add_sources(a, args);
-        }
+        add_sources(a, args);
     });
 
     unsafe {
@@ -448,6 +483,15 @@ fn handle_events(a: &mut App) {
             }
             Event::Failed(e) => notify(a, e),
             Event::Refresh => refresh(a),
+            Event::Open(sources) => {
+                unsafe {
+                    if IsIconic(a.hwnd).as_bool() {
+                        let _ = ShowWindow(a.hwnd, SW_RESTORE);
+                    }
+                    let _ = SetForegroundWindow(a.hwnd);
+                }
+                add_sources(a, sources);
+            }
         }
     }
     invalidate(a.hwnd);
@@ -606,6 +650,15 @@ fn run_action(hwnd: HWND, action: Action) {
                 return;
             };
             let folder_label = format!("Сейчас: {}", folder.display());
+            let exe = std::env::current_exe().unwrap_or_default();
+            let (torrent_ok, magnet_ok) = shell::defaults(&exe);
+            let registered = shell::is_registered();
+            let assoc_label = match (torrent_ok, magnet_ok) {
+                (true, true) => "Открывать .torrent и magnet в Rivulet ✓",
+                (true, false) => "Открывать magnet-ссылки в Rivulet…",
+                (false, true) => "Открывать .torrent-файлы в Rivulet…",
+                (false, false) => "Открывать .torrent и magnet в Rivulet…",
+            };
             let cmd = platform::popup(
                 hwnd,
                 &[
@@ -619,6 +672,9 @@ fn run_action(hwnd: HWND, action: Action) {
                     Item::Cmd(21, "Папка для загрузок…"),
                     Item::Disabled(&folder_label),
                     Item::Cmd(22, "Открыть папку загрузок"),
+                    Item::Sep,
+                    Item::Cmd(23, assoc_label),
+                    if registered { Item::Cmd(24, "Отвязать .torrent и magnet") } else { Item::Sep },
                 ],
             );
             match cmd {
@@ -646,6 +702,11 @@ fn run_action(hwnd: HWND, action: Action) {
                     }
                 }
                 22 => platform::open_in_explorer(&folder),
+                23 => associate(hwnd, &exe),
+                24 => {
+                    shell::unregister();
+                    with(|a| notify(a, "Rivulet больше не открывает .torrent и magnet"));
+                }
                 _ => {}
             }
         }
@@ -710,6 +771,34 @@ fn run_action(hwnd: HWND, action: Action) {
             }
         }
     }
+}
+
+/// Registers Rivulet for .torrent and magnet, then, if Windows still sends
+/// them elsewhere, opens Settings → Default apps on Rivulet's page.
+fn associate(hwnd: HWND, exe: &std::path::Path) {
+    if let Err(e) = shell::register(exe) {
+        with(|a| notify(a, format!("Не удалось записать в реестр: {e}")));
+        return;
+    }
+    let (torrent_ok, magnet_ok) = shell::defaults(exe);
+    if torrent_ok && magnet_ok {
+        with(|a| notify(a, "Готово: .torrent и magnet открываются в Rivulet"));
+        return;
+    }
+    let ok = confirm_info(
+        hwnd,
+        "Windows разрешает выбрать приложение по умолчанию только вам.
+
+Сейчас откроются «Приложения по умолчанию».          Выберите Rivulet для .torrent и для MAGNET.",
+    );
+    if ok {
+        platform::open_in_explorer(std::path::Path::new("ms-settings:defaultapps?registeredAppUser=Rivulet"));
+    }
+}
+
+fn confirm_info(hwnd: HWND, text: &str) -> bool {
+    let t = wide(text);
+    unsafe { MessageBoxW(Some(hwnd), PCWSTR(t.as_ptr()), w!("Rivulet"), MB_OKCANCEL | MB_ICONINFORMATION) == IDOK }
 }
 
 fn paste(hwnd: HWND) {
@@ -779,6 +868,17 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     _ => {}
                 }
                 LRESULT(0)
+            }
+            WM_COPYDATA => {
+                // From a second copy of the app; handled via the event queue
+                // so it also works while a menu or dialog is open.
+                match shell::received_sources(lp) {
+                    Some(sources) => {
+                        post(Event::Open(sources));
+                        LRESULT(1)
+                    }
+                    None => LRESULT(0),
+                }
             }
             WM_ENGINE => {
                 with(handle_events);
