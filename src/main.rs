@@ -9,6 +9,7 @@ mod gfx;
 mod icons;
 mod platform;
 mod shell;
+mod stats;
 mod theme;
 mod tray;
 mod ui;
@@ -38,7 +39,7 @@ use windows::{
         },
         UI::{
             Controls::MARGINS,
-            HiDpi::{GetDpiForSystem, GetDpiForWindow},
+            HiDpi::{GetDpiForSystem, GetDpiForWindow, GetSystemMetricsForDpi},
             Input::KeyboardAndMouse::{
                 GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_BACK,
                 VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_F2, VK_RETURN, VK_SPACE,
@@ -129,6 +130,9 @@ struct App {
     mouse: (f32, f32),
     tracking: bool,
     prefs: Prefs,
+    stats: stats::Stats,
+    /// Refreshes since the statistics were last written to disk.
+    stats_ticks: u32,
     /// Status of each download at the last refresh, to spot finished ones.
     last_status: std::collections::HashMap<String, Status>,
     /// Added in this session and not finished yet: small ones can finish
@@ -161,6 +165,10 @@ enum Action {
     PickFolder,
     ConfirmRemove,
     TrayMenu,
+    WinMin,
+    WinMax,
+    WinClose,
+    ResetStats,
 }
 
 fn main() {
@@ -272,6 +280,10 @@ fn main() {
         SetTimer(Some(hwnd), T_REFRESH, 1000, None);
     }
     tray::add(hwnd, "Rivulet");
+    unsafe {
+        // Recalculate the frame now that WM_NCCALCSIZE drops the caption.
+        let _ = SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER);
+    }
 
     let app = App {
         hwnd,
@@ -279,6 +291,8 @@ fn main() {
         surf: Surface::new(),
         ui: Ui::new(theme, prefs.precise),
         prefs,
+        stats: stats::Stats::load(&data_dir),
+        stats_ticks: 0,
         last_status: Default::default(),
         fresh: Default::default(),
         notified: None,
@@ -311,7 +325,8 @@ fn main() {
         }
     }
     HWND_RAW.store(0, Ordering::Relaxed);
-    if let Some(app) = APP.with(|a| a.borrow_mut().take()) {
+    if let Some(mut app) = APP.with(|a| a.borrow_mut().take()) {
+        app.stats.save();
         let engine = app.engine.clone();
         app.rt.block_on(async {
             let _ = tokio::time::timeout(Duration::from_secs(3), engine.stop()).await;
@@ -329,6 +344,8 @@ fn apply_frame(hwnd: HWND, theme: &Theme) {
         let _ = DwmSetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE(38), &mica as *const i32 as _, 4);
         let m = MARGINS { cxLeftWidth: -1, cxRightWidth: -1, cyTopHeight: -1, cyBottomHeight: -1 };
         let _ = DwmExtendFrameIntoClientArea(hwnd, &m);
+        let round: i32 = 2; // DWMWCP_ROUND
+        let _ = DwmSetWindowAttribute(hwnd, DWMWINDOWATTRIBUTE(33), &round as *const i32 as _, 4);
     }
 }
 
@@ -355,6 +372,12 @@ fn refresh(a: &mut App) {
     let hashes: std::collections::HashSet<String> = a.ui.snaps.iter().map(|s| s.info_hash.clone()).collect();
     a.ui.selected.retain(|h| hashes.contains(h));
     a.ui.expanded.retain(|h| hashes.contains(h));
+    a.stats.record(&a.ui.snaps);
+    a.stats_ticks += 1;
+    if a.stats_ticks >= 30 {
+        a.stats_ticks = 0;
+        a.stats.save();
+    }
     announce_changes(a);
     tray::set_tip(a.hwnd, &tray_tip(&a.ui.snaps));
     invalidate(a.hwnd);
@@ -670,6 +693,16 @@ fn click(a: &mut App, hit: Hit) -> Action {
         return Action::None;
     }
     match hit {
+        Hit::WinMin => return Action::WinMin,
+        Hit::WinMax => return Action::WinMax,
+        Hit::WinClose => return Action::WinClose,
+        Hit::Stats | Hit::Summary => {
+            ui.view = ui::View::Stats;
+            ui.search_focus = false;
+        }
+        Hit::Back => ui.view = ui::View::List,
+        Hit::Period(k) => ui.period = k,
+        Hit::StatsReset => return Action::ResetStats,
         Hit::Add => return Action::AddMenu,
         Hit::Remove => return Action::RemoveMenu,
         Hit::Settings => return Action::SettingsMenu,
@@ -929,6 +962,24 @@ fn run_action(hwnd: HWND, action: Action) {
                 _ => {}
             }
         }
+        Action::WinMin => unsafe {
+            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+        },
+        Action::WinMax => unsafe {
+            let _ = ShowWindow(hwnd, if IsZoomed(hwnd).as_bool() { SW_RESTORE } else { SW_MAXIMIZE });
+        },
+        Action::WinClose => unsafe {
+            let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
+        },
+        Action::ResetStats => {
+            if confirm(hwnd, "Сбросить статистику? Счёт начнётся заново с сегодняшнего дня.")
+            {
+                with(|a| {
+                    a.stats.reset();
+                    notify(a, "Статистика сброшена");
+                });
+            }
+        }
         Action::TrayMenu => {
             let visible = unsafe { IsWindowVisible(hwnd).as_bool() };
             let cmd = platform::popup(
@@ -1068,6 +1119,14 @@ fn paste(hwnd: HWND) {
     });
 }
 
+/// Height of the resize border Windows would draw at the top.
+fn frame_thickness(hwnd: HWND) -> i32 {
+    unsafe {
+        let dpi = GetDpiForWindow(hwnd);
+        GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
+    }
+}
+
 fn taskbar_created() -> u32 {
     static MSG: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
     *MSG.get_or_init(|| unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) })
@@ -1092,8 +1151,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     let (pw, ph) = (rc.right - rc.left, rc.bottom - rc.top);
                     let s = scale_of(hwnd);
                     let (lw, lh) = (pw as f32 / s, ph as f32 / s);
-                    let App { gfx, surf, ui, .. } = a;
-                    gfx.draw(surf, pw, ph, s, |g| ui.paint(g, lw, lh));
+                    a.ui.maximized = IsZoomed(hwnd).as_bool();
+                    let App { gfx, surf, ui, stats, .. } = a;
+                    gfx.draw(surf, pw, ph, s, |g| ui.paint(g, lw, lh, stats));
                     surf.blit(dc);
                     #[cfg(debug_assertions)]
                     if let Some(dir) = &a.dump {
@@ -1357,6 +1417,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                         return Action::None;
                     }
                     match key {
+                        _ if is(VK_ESCAPE) && a.ui.view == ui::View::Stats => a.ui.view = ui::View::List,
                         _ if is(VK_ESCAPE) => {
                             if a.ui.selected.is_empty() && a.ui.search.is_some() {
                                 close_search(a);
@@ -1438,10 +1499,51 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                 }
                 DefWindowProcW(hwnd, msg, wp, lp)
             }
+            WM_NCCALCSIZE if wp.0 != 0 => {
+                // No caption: keep the default side and bottom borders (they
+                // are invisible resize handles), take the top for the client.
+                let params = &mut *(lp.0 as *mut NCCALCSIZE_PARAMS);
+                let top = params.rgrc[0].top;
+                let r = DefWindowProcW(hwnd, msg, wp, lp);
+                params.rgrc[0].top = top;
+                if IsZoomed(hwnd).as_bool() {
+                    // A maximized window hangs its frame off-screen.
+                    params.rgrc[0].top += frame_thickness(hwnd);
+                }
+                r
+            }
+            WM_NCHITTEST => {
+                let r = DefWindowProcW(hwnd, msg, wp, lp);
+                if r.0 as u32 != HTCLIENT {
+                    return r;
+                }
+                let mut pt = POINT { x: (lp.0 & 0xFFFF) as i16 as i32, y: ((lp.0 >> 16) & 0xFFFF) as i16 as i32 };
+                let _ = ScreenToClient(hwnd, &mut pt);
+                let zoomed = IsZoomed(hwnd).as_bool();
+                if !zoomed && pt.y < frame_thickness(hwnd) {
+                    let mut rc = RECT::default();
+                    let _ = GetClientRect(hwnd, &mut rc);
+                    let corner = 16;
+                    return LRESULT(if pt.x < corner {
+                        HTTOPLEFT
+                    } else if pt.x > rc.right - corner {
+                        HTTOPRIGHT
+                    } else {
+                        HTTOP
+                    } as isize);
+                }
+                let s = scale_of(hwnd);
+                let drag = with(|a| a.ui.is_drag_area(pt.x as f32 / s, pt.y as f32 / s)).unwrap_or(false);
+                LRESULT(if drag { HTCAPTION } else { HTCLIENT } as isize)
+            }
+            WM_SIZE => {
+                invalidate(hwnd);
+                DefWindowProcW(hwnd, msg, wp, lp)
+            }
             WM_GETMINMAXINFO => {
                 let s = scale_of(hwnd);
                 let mmi = &mut *(lp.0 as *mut MINMAXINFO);
-                mmi.ptMinTrackSize = POINT { x: (460.0 * s) as i32, y: (480.0 * s) as i32 };
+                mmi.ptMinTrackSize = POINT { x: (480.0 * s) as i32, y: (600.0 * s) as i32 };
                 LRESULT(0)
             }
             WM_DPICHANGED => {

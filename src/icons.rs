@@ -20,6 +20,9 @@ pub const WARN: &str = "M12 4L21 19.5H3ZM12 10V14M12 16.8V17";
 pub const DONE: &str = "M12 3.5A8.5 8.5 0 1 0 12.01 3.5ZM8 12.3L11 15.2L16.2 9.5";
 pub const SEARCH: &str = "M10.5 4A6.5 6.5 0 1 0 10.51 4ZM15.3 15.3L20 20";
 pub const CLOSE: &str = "M7 7L17 17M17 7L7 17";
+pub const CHART: &str = "M5 19.5H19M7.5 16V11M12 16V6.5M16.5 16V8.5";
+pub const BACK: &str = "M14.5 6L8.5 12L14.5 18";
+pub const CHEVRON_RIGHT: &str = "M9.5 6L15.5 12L9.5 18";
 pub const ROTATE: &str = "M19 12A7 7 0 1 1 16.5 6.6M17 3.5V7H13.5";
 
 /// Draws icon `d` in a `size`×`size` box at (x, y).

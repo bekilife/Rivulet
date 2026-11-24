@@ -59,3 +59,24 @@ pub fn files(n: usize) -> String {
     };
     format!("{n} {word}")
 }
+
+/// "1 загрузка", "3 загрузки", "5 загрузок".
+pub fn count(n: usize, forms: [&str; 3]) -> String {
+    let word = match (n % 10, n % 100) {
+        (1, r) if r != 11 => forms[0],
+        (2..=4, r) if !(12..=14).contains(&r) => forms[1],
+        _ => forms[2],
+    };
+    format!("{n} {word}")
+}
+
+/// Upload ratio: "0,44", "7,3", "26".
+pub fn ratio(r: f64) -> String {
+    if r >= 10.0 {
+        format!("{}", r.round() as u64)
+    } else if r >= 1.0 {
+        num(r, 1)
+    } else {
+        num(r, 2)
+    }
+}

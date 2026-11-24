@@ -15,9 +15,11 @@
 
 [Возможности](#возможности) · [Сборка из исходников](#сборка-из-исходников) · [English](#english)
 
-<img src="docs/screenshot.png" width="420" alt="Список загрузок">
+<img src="docs/screenshot.png" width="280" alt="Список загрузок">
 &nbsp;
-<img src="docs/add-sheet.png" width="420" alt="Выбор файлов перед загрузкой">
+<img src="docs/add-sheet.png" width="280" alt="Выбор файлов перед загрузкой">
+&nbsp;
+<img src="docs/stats.png" width="280" alt="Статистика">
 
 </div>
 
@@ -26,9 +28,10 @@
 - **Сначала выбор, потом загрузка.** Откройте `.torrent`, magnet-ссылку или перетащите файл в окно: Rivulet покажет список файлов, где можно отметить нужные, выбрать папку и дать загрузке своё название. Невыбранные файлы не появляются на диске даже в виде пустых заготовок.
 - **Понятные карточки.** Прогресс, скорость с цветом по уровню, время до конца. По клику — подробности: сиды и пиры, отдача, размер.
 - **Три режима вместо десятков настроек.** «Спокойный» бережёт компьютер и сеть, «Обычный» без ограничений скорости, «Максимум» — всё, что позволяет канал.
+- **Статистика.** Сколько скачано и роздано за 7 дней, 30 дней и всё время, рейтинг раздачи, график по дням и самые раздаваемые торренты. Итоги за 30 дней видны прямо под списком.
 - **Поиск и переименование.** Ctrl+F фильтрует список, F2 переименовывает загрузку.
 - **Работает в фоне.** Значок в трее со скоростью, уведомления о завершении, автозапуск вместе с Windows.
-- **Встраивается в Windows.** Открывает `.torrent` и magnet-ссылки (после выбора в «Приложениях по умолчанию»), всегда работает одна копия, тема и акцентный цвет берутся из системы, фон Mica.
+- **Встраивается в Windows.** Открывает `.torrent` и magnet-ссылки (после выбора в «Приложениях по умолчанию»), всегда работает одна копия, светлая или тёмная тема — как в Windows. Своя строка заголовка с кнопками окна; окно перетаскивается, разворачивается и прилипает к краям как обычно.
 - **Без лишнего.** Один `rivulet.exe` около 7 МБ, без установщика, рантаймов и WebView. Данные — в `%LOCALAPPDATA%\Rivulet`.
 
 ## Горячие клавиши
@@ -78,6 +81,7 @@ BitTorrent — это протокол передачи данных. Скачи
 
 - Pick files, folder and a display name before a download starts; unselected files never appear on disk.
 - Clean download cards, three performance modes, search (Ctrl+F) and rename (F2).
+- Statistics: downloaded and uploaded over 7 days, 30 days and all time, share ratio, a daily chart and the most seeded torrents.
 - Tray icon, notifications, start with Windows, opens `.torrent` files and magnet links, single instance, follows the Windows theme and accent color.
 
 Build with `cargo build --release`. MIT licensed.

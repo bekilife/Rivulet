@@ -1,4 +1,4 @@
-//! Light/dark palette that follows the Windows theme and accent color.
+//! Light/dark palette that follows the Windows app theme.
 
 use windows::{
     Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW},
@@ -10,29 +10,42 @@ use crate::gfx::Color;
 #[derive(Clone, Copy)]
 pub struct Theme {
     pub dark: bool,
+    /// Downloads, primary buttons, focus.
     pub accent: Color,
+    pub accent_soft: Color,
     /// Text on an accent fill.
     pub on_accent: Color,
-    /// Window background behind the cards (drawn over the Mica backdrop).
+    /// Uploads, finished and seeding downloads.
+    pub green: Color,
+    pub green_soft: Color,
+    pub orange: Color,
+    pub red: Color,
+    /// Window background.
     pub backdrop: Color,
+    /// Cards and button groups.
     pub card: Color,
+    pub surface2: Color,
     pub card_border: Color,
     pub card_hover_border: Color,
     pub text: Color,
     pub text2: Color,
     pub text3: Color,
     pub track: Color,
+    pub grid: Color,
     pub chip: Color,
     pub chip_border: Color,
     pub hover: Color,
     pub press: Color,
     pub separator: Color,
-    pub green: Color,
-    pub orange: Color,
-    pub red: Color,
     pub scrim: Color,
     pub sheet: Color,
     pub field: Color,
+    pub seg_on: Color,
+    pub seg_on_text: Color,
+    pub tip_bg: Color,
+    pub tip_text: Color,
+    pub link: Color,
+    pub close_hover: Color,
 }
 
 impl Theme {
@@ -41,62 +54,77 @@ impl Theme {
             reg_dword(w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"), w!("AppsUseLightTheme"))
                 .map(|v| v == 0)
                 .unwrap_or(false);
-        // AccentColor is stored as 0xAABBGGRR.
-        let accent = reg_dword(w!("Software\\Microsoft\\Windows\\DWM"), w!("AccentColor"))
-            .map(|v| Color::rgba((v & 255) as u8, ((v >> 8) & 255) as u8, ((v >> 16) & 255) as u8, 1.0))
-            .unwrap_or(Color::hex(0x0067C0));
-        let accent = if dark { lighten(accent, 0.35) } else { darken(accent, 0.1) };
-        let luma = 0.299 * accent.0 + 0.587 * accent.1 + 0.114 * accent.2;
-        let on_accent = if luma > 0.6 { Color::hex(0x111111) } else { Color::white(1.0) };
+        let white = |a: f32| Color::white(a);
+        let ink = |a: f32| Color::rgba(17, 24, 39, a);
         if dark {
             Theme {
                 dark,
-                accent,
-                on_accent,
-                backdrop: Color::rgba(32, 32, 32, 0.55),
-                card: Color::rgba(255, 255, 255, 0.055),
-                card_border: Color::rgba(255, 255, 255, 0.08),
-                card_hover_border: Color::rgba(255, 255, 255, 0.18),
-                text: Color::hex(0xF5F5F5),
-                text2: Color::rgba(255, 255, 255, 0.66),
-                text3: Color::rgba(255, 255, 255, 0.42),
-                track: Color::rgba(255, 255, 255, 0.10),
-                chip: Color::rgba(255, 255, 255, 0.06),
-                chip_border: Color::rgba(255, 255, 255, 0.09),
-                hover: Color::rgba(255, 255, 255, 0.07),
-                press: Color::rgba(255, 255, 255, 0.04),
-                separator: Color::rgba(255, 255, 255, 0.08),
-                green: Color::hex(0x6CCB5F),
+                accent: Color::hex(0x4FA3FF),
+                accent_soft: Color::rgba(79, 163, 255, 0.15),
+                on_accent: Color::hex(0x0B1A2E),
+                green: Color::hex(0x45D483),
+                green_soft: Color::rgba(69, 212, 131, 0.14),
                 orange: Color::hex(0xF7A35C),
-                red: Color::hex(0xFF8A80),
-                scrim: Color::rgba(0, 0, 0, 0.45),
-                sheet: Color::hex(0x2B2B2B),
-                field: Color::rgba(255, 255, 255, 0.06),
+                red: Color::hex(0xFF7A7A),
+                backdrop: Color::hex(0x141517),
+                card: Color::hex(0x1D1E21),
+                surface2: Color::hex(0x2A2B2F),
+                card_border: white(0.07),
+                card_hover_border: white(0.16),
+                text: Color::hex(0xF2F3F5),
+                text2: Color::hex(0xB1B4BB),
+                text3: Color::hex(0x8B8F98),
+                track: white(0.08),
+                grid: white(0.07),
+                chip: white(0.05),
+                chip_border: white(0.08),
+                hover: white(0.07),
+                press: white(0.04),
+                separator: white(0.07),
+                scrim: Color(0.0, 0.0, 0.0, 0.5),
+                sheet: Color::hex(0x1D1E21),
+                field: white(0.05),
+                seg_on: Color::hex(0xF2F3F5),
+                seg_on_text: Color::hex(0x141517),
+                tip_bg: Color::hex(0xF2F3F5),
+                tip_text: Color::hex(0x141517),
+                link: Color::hex(0x7CB8FF),
+                close_hover: Color::hex(0xE5484D),
             }
         } else {
             Theme {
                 dark,
-                accent,
-                on_accent,
-                backdrop: Color::rgba(243, 243, 243, 0.55),
-                card: Color::rgba(255, 255, 255, 0.92),
-                card_border: Color::rgba(0, 0, 0, 0.07),
-                card_hover_border: Color::rgba(0, 0, 0, 0.16),
-                text: Color::hex(0x1A1A1A),
-                text2: Color::rgba(0, 0, 0, 0.60),
-                text3: Color::rgba(0, 0, 0, 0.40),
-                track: Color::rgba(0, 0, 0, 0.08),
-                chip: Color::rgba(0, 0, 0, 0.035),
-                chip_border: Color::rgba(0, 0, 0, 0.07),
-                hover: Color::rgba(0, 0, 0, 0.05),
-                press: Color::rgba(0, 0, 0, 0.08),
-                separator: Color::rgba(0, 0, 0, 0.07),
-                green: Color::hex(0x2E8B3E),
+                accent: Color::hex(0x1F6FEB),
+                accent_soft: Color::rgba(31, 111, 235, 0.10),
+                on_accent: Color::white(1.0),
+                green: Color::hex(0x1E9E5A),
+                green_soft: Color::rgba(30, 158, 90, 0.12),
                 orange: Color::hex(0xC65D00),
                 red: Color::hex(0xC42B1C),
-                scrim: Color::rgba(0, 0, 0, 0.30),
-                sheet: Color::hex(0xFBFBFB),
-                field: Color::rgba(0, 0, 0, 0.035),
+                backdrop: Color::hex(0xEEF0F3),
+                card: Color::hex(0xFFFFFF),
+                surface2: Color::hex(0xF0F1F4),
+                card_border: ink(0.08),
+                card_hover_border: ink(0.18),
+                text: Color::hex(0x14161A),
+                text2: Color::hex(0x555B66),
+                text3: Color::hex(0x6B717C),
+                track: ink(0.08),
+                grid: ink(0.09),
+                chip: ink(0.04),
+                chip_border: ink(0.08),
+                hover: ink(0.05),
+                press: ink(0.08),
+                separator: ink(0.08),
+                scrim: Color(0.0, 0.0, 0.0, 0.3),
+                sheet: Color::hex(0xFFFFFF),
+                field: ink(0.04),
+                seg_on: Color::hex(0x14161A),
+                seg_on_text: Color::white(1.0),
+                tip_bg: Color::hex(0x14161A),
+                tip_text: Color::white(1.0),
+                link: Color::hex(0x1F6FEB),
+                close_hover: Color::hex(0xE5484D),
             }
         }
     }
@@ -117,12 +145,4 @@ fn reg_dword(key: windows::core::PCWSTR, value: windows::core::PCWSTR) -> Option
         )
     };
     r.is_ok().then_some(data)
-}
-
-fn lighten(c: Color, t: f32) -> Color {
-    Color(c.0 + (1.0 - c.0) * t, c.1 + (1.0 - c.1) * t, c.2 + (1.0 - c.2) * t, c.3)
-}
-
-fn darken(c: Color, t: f32) -> Color {
-    Color(c.0 * (1.0 - t), c.1 * (1.0 - t), c.2 * (1.0 - t), c.3)
 }
