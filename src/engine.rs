@@ -19,6 +19,10 @@ use librqbit::{
 };
 use serde::{Deserialize, Serialize};
 
+use librqbit::storage::StorageFactoryExt;
+
+use crate::storage::{Layout, Layouts, PartsStorageFactory};
+
 /// Performance profile, chosen once instead of tuning the engine by hand.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -123,12 +127,19 @@ struct Extras {
     /// Folder new downloads go to unless chosen otherwise.
     #[serde(default)]
     download_dir: Option<PathBuf>,
+    /// info hash (hex) -> where files go and which were selected; read by
+    /// the storage so unselected files never appear on disk.
+    #[serde(default)]
+    layouts: HashMap<String, Layout>,
 }
 
 pub struct Engine {
     session: Arc<Session>,
     data_dir: PathBuf,
+    default_download_dir: PathBuf,
     extras: Mutex<Extras>,
+    layouts: Layouts,
+    storage: PartsStorageFactory,
 }
 
 impl Engine {
@@ -137,6 +148,8 @@ impl Engine {
         std::fs::create_dir_all(data_dir)?;
         let extras = load_extras(data_dir);
         let profile = extras.profile;
+        let layouts: Layouts = Arc::new(Mutex::new(extras.layouts.clone()));
+        let storage = PartsStorageFactory { layouts: layouts.clone(), parts_dir: data_dir.join("parts") };
         let session = Session::new_with_opts(
             default_download_dir.to_path_buf(),
             SessionOptions {
@@ -153,6 +166,7 @@ impl Engine {
                 peer_limit: Some(profile.peer_limit()),
                 ratelimits: profile.limits(),
                 client_name_and_version: Some(format!("Rivulet {}", env!("CARGO_PKG_VERSION"))),
+                default_storage_factory: Some(storage.clone().boxed()),
                 ..Default::default()
             },
         )
@@ -161,7 +175,10 @@ impl Engine {
         Ok(Self {
             session,
             data_dir: data_dir.to_path_buf(),
+            default_download_dir: default_download_dir.to_path_buf(),
             extras: Mutex::new(extras),
+            layouts,
+            storage,
         })
     }
 
@@ -259,11 +276,16 @@ impl Engine {
                 bail!("file #{bad} does not exist in this torrent");
             }
         }
+        if self.session.get(TorrentIdOrHash::Hash(Id20::from_str(&draft.info_hash)?)).is_some() {
+            bail!("this torrent is already in the list");
+        }
         // A torrent with several files gets its own folder, as librqbit does
         // for its default location.
-        let output_folder = output_folder.map(|p| {
-            if draft.files.len() > 1 { p.join(safe_folder_name(&draft.name)) } else { p.to_path_buf() }
-        });
+        let base = output_folder.unwrap_or(&self.default_download_dir);
+        let folder = if draft.files.len() > 1 { base.join(safe_folder_name(&draft.name)) } else { base.to_path_buf() };
+        // The storage reads the layout when librqbit creates it during add.
+        self.set_layout(&draft.info_hash, Some(Layout { folder: folder.clone(), selected: files.clone() }))?;
+        let output_folder = Some(folder);
         let response = self
             .session
             .add_torrent(
@@ -276,7 +298,10 @@ impl Engine {
                     ..Default::default()
                 }),
             )
-            .await?;
+            .await
+            .inspect_err(|_| {
+                let _ = self.set_layout(&draft.info_hash, None);
+            })?;
         let id = match response {
             AddTorrentResponse::Added(id, _) => id,
             AddTorrentResponse::AlreadyManaged(_, _) => bail!("this torrent is already in the list"),
@@ -353,11 +378,22 @@ impl Engine {
     pub async fn remove(&self, id: usize, delete_files: bool) -> Result<()> {
         let hash = self.handle(id)?.info_hash().as_string();
         self.session.delete(TorrentIdOrHash::Id(id), delete_files).await?;
+        // Slivers of unselected files are only useful while the torrent is in
+        // the list.
+        let _ = std::fs::remove_file(self.storage.parts_file(&hash));
+        self.extras.lock().unwrap().aliases.remove(&hash);
+        self.set_layout(&hash, None)
+    }
+
+    fn set_layout(&self, info_hash: &str, layout: Option<Layout>) -> Result<()> {
+        let mut layouts = self.layouts.lock().unwrap();
+        match layout {
+            Some(l) => layouts.insert(info_hash.to_owned(), l),
+            None => layouts.remove(info_hash),
+        };
         let mut extras = self.extras.lock().unwrap();
-        if extras.aliases.remove(&hash).is_some() {
-            save_extras(&self.data_dir, &extras)?;
-        }
-        Ok(())
+        extras.layouts = layouts.clone();
+        save_extras(&self.data_dir, &extras)
     }
 
     pub async fn stop(&self) {
