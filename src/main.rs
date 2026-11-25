@@ -3,6 +3,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+mod lang;
 mod fmt;
 #[allow(dead_code)]
 mod gfx;
@@ -53,6 +55,7 @@ use windows::{
 
 use crate::{
     gfx::{Gfx, Surface},
+    lang::tt,
     platform::Item,
     theme::Theme,
     ui::{Hit, Sheet, SheetState, Ui},
@@ -107,11 +110,19 @@ struct Prefs {
     notify_done: bool,
     /// The "still running in the tray" hint was shown once.
     tray_hint_shown: bool,
+    /// Interface language.
+    lang: lang::Lang,
 }
 
 impl Default for Prefs {
     fn default() -> Self {
-        Prefs { precise: false, close_to_tray: true, notify_done: true, tray_hint_shown: false }
+        Prefs {
+            precise: false,
+            close_to_tray: true,
+            notify_done: true,
+            tray_hint_shown: false,
+            lang: lang::Lang::System,
+        }
     }
 }
 
@@ -175,6 +186,7 @@ fn main() {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
+    lang::set(lang::Lang::System);
     let data_dir = std::env::var_os("RIVULET_DATA")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Rivulet")))
@@ -208,7 +220,10 @@ fn main() {
         if shell::forward_to_running(&class_name, &args) {
             return;
         }
-        let text = wide("Rivulet уже запущен, но его окно не отвечает.");
+        let text = wide(tt(
+            "Rivulet уже запущен, но его окно не отвечает.",
+            "Rivulet is already running, but its window does not respond.",
+        ));
         unsafe {
             MessageBoxW(None, PCWSTR(text.as_ptr()), w!("Rivulet"), MB_ICONWARNING);
         }
@@ -230,7 +245,8 @@ fn main() {
     let engine = match rt.block_on(Engine::start(&data_dir, &platform::downloads_folder())) {
         Ok(e) => Arc::new(e),
         Err(e) => {
-            let text = wide(&format!("Не удалось запустить торрент-движок:\n{e:#}"));
+            let text =
+                wide(&tr!("Не удалось запустить торрент-движок:\n{e:#}", "Could not start the torrent engine:\n{e:#}"));
             unsafe {
                 MessageBoxW(None, PCWSTR(text.as_ptr()), w!("Rivulet"), MB_ICONERROR);
             }
@@ -239,6 +255,7 @@ fn main() {
     };
     let prefs: Prefs =
         std::fs::read(data_dir.join("ui.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    lang::set(prefs.lang);
 
     let hinst = unsafe { GetModuleHandleW(None).unwrap_or_default() };
     let class_w = wide(&class_name);
@@ -409,13 +426,13 @@ fn announce_changes(a: &mut App) {
     }
     let (title, text, hash) = match (done.as_slice(), failed.as_slice()) {
         ([], []) => return,
-        ([(h, name)], []) => ("Загрузка завершена".to_string(), name.clone(), Some(h.clone())),
+        ([(h, name)], []) => (tt("Загрузка завершена", "Download complete").to_string(), name.clone(), Some(h.clone())),
         (d, []) => (
-            format!("Завершено загрузок: {}", d.len()),
+            tr!("Завершено загрузок: {}", "Downloads complete: {}", d.len()),
             d.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join(", "),
             None,
         ),
-        (_, [(h, name), ..]) => ("Ошибка загрузки".to_string(), name.clone(), Some(h.clone())),
+        (_, [(h, name), ..]) => (tt("Ошибка загрузки", "Download failed").to_string(), name.clone(), Some(h.clone())),
     };
     a.notified = hash;
     tray::notify(a.hwnd, &title, &text);
@@ -427,12 +444,18 @@ fn tray_tip(snaps: &[rivulet::engine::Snapshot]) -> String {
         return if snaps.is_empty() {
             "Rivulet".into()
         } else {
-            "Rivulet — активных загрузок нет".into()
+            tt("Rivulet — активных загрузок нет", "Rivulet — no active downloads").into()
         };
     }
     let down: u64 = active.iter().map(|s| s.down_bps).sum();
     let up: u64 = snaps.iter().map(|s| s.up_bps).sum();
-    format!("Rivulet — загрузок: {}\n↓ {}  ↑ {}", active.len(), fmt::speed(down, false), fmt::speed(up, false))
+    tr!(
+        "Rivulet — загрузок: {}\n↓ {}  ↑ {}",
+        "Rivulet — downloads: {}\n↓ {}  ↑ {}",
+        active.len(),
+        fmt::speed(down, false),
+        fmt::speed(up, false)
+    )
 }
 
 /// Brings the window back from the tray, the taskbar or behind other windows.
@@ -471,11 +494,11 @@ where
 
 fn russian_error(e: &str) -> String {
     if e.contains("already in the list") || e.contains("already managed") {
-        "Этот торрент уже есть в списке".into()
+        tt("Этот торрент уже есть в списке", "This torrent is already in the list").into()
     } else if e.contains("no files selected") {
-        "Не выбрано ни одного файла".into()
+        tt("Не выбрано ни одного файла", "No files selected").into()
     } else {
-        format!("Ошибка: {e}")
+        tr!("Ошибка: {e}", "Error: {e}")
     }
 }
 
@@ -529,14 +552,15 @@ fn open_next(a: &mut App) {
         let result = match tokio::time::timeout(Duration::from_secs(120), engine.preview(&source)).await {
             Ok(Ok(d)) => Ok(d),
             Ok(Err(e)) => Err(if e.to_string().contains("already in the list") {
-                "Этот торрент уже есть в списке.".to_string()
+                tt("Этот торрент уже есть в списке.", "This torrent is already in the list.").to_string()
             } else {
-                format!("Не удалось открыть торрент.\n{e:#}")
+                tr!("Не удалось открыть торрент.\n{e:#}", "Could not open the torrent.\n{e:#}")
             }),
-            Err(_) => {
-                Err("За 2 минуты не удалось получить список файлов. Возможно, сейчас никто не раздаёт этот торрент."
-                    .to_string())
-            }
+            Err(_) => Err(tt(
+                "За 2 минуты не удалось получить список файлов. Возможно, сейчас никто не раздаёт этот торрент.",
+                "Could not get the file list in 2 minutes. Maybe nobody is sharing this torrent right now.",
+            )
+            .to_string()),
         };
         post(Event::Preview { token, result });
     });
@@ -611,7 +635,7 @@ fn handle_events(a: &mut App) {
                         a.fresh.insert(hash);
                         close_sheet(a);
                         refresh(a);
-                        notify(a, format!("Добавлено: {name}"));
+                        notify(a, tr!("Добавлено: {name}", "Added: {name}"));
                     }
                     Err(e) => {
                         if let Some(s) = a.ui.sheet.as_mut() {
@@ -776,13 +800,13 @@ fn save_rename(a: &mut App) {
             notify(
                 a,
                 if r.text.trim().is_empty() {
-                    "Название из торрента возвращено"
+                    tt("Название из торрента возвращено", "Name from the torrent restored")
                 } else {
-                    "Переименовано"
+                    tt("Переименовано", "Renamed")
                 },
             );
         }
-        Err(e) => notify(a, format!("Не удалось сохранить название: {e}")),
+        Err(e) => notify(a, tr!("Не удалось сохранить название: {e}", "Could not save the name: {e}")),
     }
 }
 
@@ -822,7 +846,10 @@ fn run_action(hwnd: HWND, action: Action) {
         Action::AddMenu => {
             let cmd = platform::popup(
                 hwnd,
-                &[Item::Cmd(1, "Открыть .torrent-файл…\tCtrl+O"), Item::Cmd(2, "Вставить magnet-ссылку\tCtrl+V")],
+                &[
+                    Item::Cmd(1, tt("Открыть .torrent-файл…\tCtrl+O", "Open .torrent file…\tCtrl+O")),
+                    Item::Cmd(2, tt("Вставить magnet-ссылку\tCtrl+V", "Paste magnet link\tCtrl+V")),
+                ],
             );
             match cmd {
                 1 => run_action(hwnd, Action::OpenFiles),
@@ -839,14 +866,26 @@ fn run_action(hwnd: HWND, action: Action) {
             if n == 0 {
                 return;
             }
-            let cmd =
-                platform::popup(hwnd, &[Item::Cmd(1, "Убрать из списка"), Item::Cmd(2, "Убрать и удалить файлы…")]);
+            let cmd = platform::popup(
+                hwnd,
+                &[
+                    Item::Cmd(1, tt("Убрать из списка", "Remove from list")),
+                    Item::Cmd(2, tt("Убрать и удалить файлы…", "Remove and delete files…")),
+                ],
+            );
             let hashes = with(|a| a.ui.selected.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
             match cmd {
                 1 => {
                     with(|a| remove(a, hashes, false));
                 }
-                2 if confirm(hwnd, &format!("Удалить скачанные файлы ({})? Это нельзя отменить.", fmt::files(n))) =>
+                2 if confirm(
+                    hwnd,
+                    &tr!(
+                        "Удалить скачанные файлы ({})? Это нельзя отменить.",
+                        "Delete the downloaded files ({})? This cannot be undone.",
+                        fmt::files(n)
+                    ),
+                ) =>
                 {
                     with(|a| remove(a, hashes, true));
                 }
@@ -856,53 +895,86 @@ fn run_action(hwnd: HWND, action: Action) {
         Action::ConfirmRemove => {
             let hashes = with(|a| a.ui.selected.iter().cloned().collect::<Vec<_>>()).unwrap_or_default();
             if !hashes.is_empty()
-                && confirm(hwnd, &format!("Убрать из списка: {}? Файлы останутся на диске.", hashes.len()))
+                && confirm(
+                    hwnd,
+                    &tr!(
+                        "Убрать из списка: {}? Файлы останутся на диске.",
+                        "Remove {} from the list? The files stay on disk.",
+                        hashes.len()
+                    ),
+                )
             {
                 with(|a| remove(a, hashes, false));
             }
         }
         Action::SettingsMenu => {
-            let Some((profile, precise, folder, close_to_tray, notify_done)) = with(|a| {
+            let Some((profile, precise, folder, close_to_tray, notify_done, ui_lang)) = with(|a| {
                 (
                     a.engine.profile(),
                     a.ui.precise,
                     a.engine.download_dir().unwrap_or_else(platform::downloads_folder),
                     a.prefs.close_to_tray,
                     a.prefs.notify_done,
+                    a.prefs.lang,
                 )
             }) else {
                 return;
             };
-            let folder_label = format!("Сейчас: {}", folder.display());
+            let folder_label = tr!("Сейчас: {}", "Now: {}", folder.display());
             let exe = std::env::current_exe().unwrap_or_default();
             let (torrent_ok, magnet_ok) = shell::defaults(&exe);
             let registered = shell::is_registered();
             let assoc_label = match (torrent_ok, magnet_ok) {
-                (true, true) => "Открывать .torrent и magnet в Rivulet ✓",
-                (true, false) => "Открывать magnet-ссылки в Rivulet…",
-                (false, true) => "Открывать .torrent-файлы в Rivulet…",
-                (false, false) => "Открывать .torrent и magnet в Rivulet…",
+                (true, true) => tt("Открывать .torrent и magnet в Rivulet ✓", "Open .torrent and magnet in Rivulet ✓"),
+                (true, false) => tt("Открывать magnet-ссылки в Rivulet…", "Open magnet links in Rivulet…"),
+                (false, true) => tt("Открывать .torrent-файлы в Rivulet…", "Open .torrent files in Rivulet…"),
+                (false, false) => tt("Открывать .torrent и magnet в Rivulet…", "Open .torrent and magnet in Rivulet…"),
             };
             let cmd = platform::popup(
                 hwnd,
                 &[
-                    Item::Disabled("Режим работы"),
-                    Item::Check(10, "Спокойный — до 24 пиров, до 5 МБ/с", profile == Profile::Calm),
-                    Item::Check(11, "Обычный — без ограничения скорости", profile == Profile::Steady),
-                    Item::Check(12, "Максимум — всё, что позволяет сеть", profile == Profile::Surge),
+                    Item::Disabled(tt("Режим работы", "Mode")),
+                    Item::Check(
+                        10,
+                        tt("Спокойный — до 24 пиров, до 5 МБ/с", "Calm — up to 24 peers and 5 MB/s"),
+                        profile == Profile::Calm,
+                    ),
+                    Item::Check(
+                        11,
+                        tt("Обычный — без ограничения скорости", "Steady — no speed cap"),
+                        profile == Profile::Steady,
+                    ),
+                    Item::Check(
+                        12,
+                        tt("Максимум — всё, что позволяет сеть", "Surge — all your connection can take"),
+                        profile == Profile::Surge,
+                    ),
                     Item::Sep,
-                    Item::Check(20, "Подробные цифры", precise),
+                    Item::Check(20, tt("Подробные цифры", "Precise numbers"), precise),
                     Item::Sep,
-                    Item::Cmd(21, "Папка для загрузок…"),
+                    Item::Cmd(21, tt("Папка для загрузок…", "Download folder…")),
                     Item::Disabled(&folder_label),
-                    Item::Cmd(22, "Открыть папку загрузок"),
+                    Item::Cmd(22, tt("Открыть папку загрузок", "Open download folder")),
                     Item::Sep,
                     Item::Cmd(23, assoc_label),
-                    if registered { Item::Cmd(24, "Отвязать .torrent и magnet") } else { Item::Sep },
+                    if registered {
+                        Item::Cmd(24, tt("Отвязать .torrent и magnet", "Stop opening .torrent and magnet"))
+                    } else {
+                        Item::Sep
+                    },
                     Item::Sep,
-                    Item::Check(30, "Запускать вместе с Windows", shell::autostart_enabled()),
-                    Item::Check(31, "При закрытии сворачивать в трей", close_to_tray),
-                    Item::Check(32, "Уведомлять о завершении загрузок", notify_done),
+                    Item::Check(30, tt("Запускать вместе с Windows", "Start with Windows"), shell::autostart_enabled()),
+                    Item::Check(31, tt("При закрытии сворачивать в трей", "Close to tray"), close_to_tray),
+                    Item::Check(
+                        32,
+                        tt("Уведомлять о завершении загрузок", "Notify when downloads finish"),
+                        notify_done,
+                    ),
+                    Item::Sep,
+                    Item::Disabled("Язык / Language"),
+                    Item::Check(40, tt("Как в Windows", "Same as Windows"), ui_lang == lang::Lang::System),
+                    Item::Check(41, "English", ui_lang == lang::Lang::En),
+                    Item::Check(42, "Русский", ui_lang == lang::Lang::Ru),
                 ],
             );
             match cmd {
@@ -910,8 +982,9 @@ fn run_action(hwnd: HWND, action: Action) {
                     let p = [Profile::Calm, Profile::Steady, Profile::Surge][cmd - 10];
                     with(|a| {
                         let _ = a.engine.set_profile(p);
-                        let label = ["Спокойный", "Обычный", "Максимум"][cmd - 10];
-                        notify(a, format!("Режим: {label}"));
+                        let label =
+                            [tt("Спокойный", "Calm"), tt("Обычный", "Steady"), tt("Максимум", "Surge")][cmd - 10];
+                        notify(a, tr!("Режим: {label}", "Mode: {label}"));
                     });
                 }
                 20 => {
@@ -925,7 +998,7 @@ fn run_action(hwnd: HWND, action: Action) {
                     if let Some(dir) = platform::pick_folder(hwnd, &folder) {
                         with(|a| {
                             let _ = a.engine.set_download_dir(&dir);
-                            notify(a, format!("Новые загрузки — в {}", dir.display()));
+                            notify(a, tr!("Новые загрузки — в {}", "New downloads go to {}", dir.display()));
                         });
                     }
                 }
@@ -933,7 +1006,15 @@ fn run_action(hwnd: HWND, action: Action) {
                 23 => associate(hwnd, &exe),
                 24 => {
                     shell::unregister();
-                    with(|a| notify(a, "Rivulet больше не открывает .torrent и magnet"));
+                    with(|a| {
+                        notify(
+                            a,
+                            tt(
+                                "Rivulet больше не открывает .torrent и magnet",
+                                "Rivulet no longer opens .torrent and magnet",
+                            ),
+                        )
+                    });
                 }
                 30 => {
                     let on = !shell::autostart_enabled();
@@ -942,9 +1023,16 @@ fn run_action(hwnd: HWND, action: Action) {
                         notify(
                             a,
                             match (r, on) {
-                                (Err(e), _) => format!("Не удалось изменить автозапуск: {e}"),
-                                (Ok(()), true) => "Rivulet будет запускаться в трее вместе с Windows".into(),
-                                (Ok(()), false) => "Автозапуск выключен".into(),
+                                (Err(e), _) => tr!(
+                                    "Не удалось изменить автозапуск: {e}",
+                                    "Could not change start with Windows: {e}"
+                                ),
+                                (Ok(()), true) => tt(
+                                    "Rivulet будет запускаться в трее вместе с Windows",
+                                    "Rivulet will start in the tray with Windows",
+                                )
+                                .into(),
+                                (Ok(()), false) => tt("Автозапуск выключен", "Start with Windows is off").into(),
                             },
                         )
                     });
@@ -957,6 +1045,15 @@ fn run_action(hwnd: HWND, action: Action) {
                             a.prefs.notify_done = !a.prefs.notify_done;
                         }
                         save_prefs(a);
+                    });
+                }
+                40..=42 => {
+                    let l = [lang::Lang::System, lang::Lang::En, lang::Lang::Ru][cmd - 40];
+                    lang::set(l);
+                    with(|a| {
+                        a.prefs.lang = l;
+                        save_prefs(a);
+                        refresh(a);
                     });
                 }
                 _ => {}
@@ -972,11 +1069,16 @@ fn run_action(hwnd: HWND, action: Action) {
             let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         },
         Action::ResetStats => {
-            if confirm(hwnd, "Сбросить статистику? Счёт начнётся заново с сегодняшнего дня.")
-            {
+            if confirm(
+                hwnd,
+                tt(
+                    "Сбросить статистику? Счёт начнётся заново с сегодняшнего дня.",
+                    "Reset statistics? Counting starts again from today.",
+                ),
+            ) {
                 with(|a| {
                     a.stats.reset();
-                    notify(a, "Статистика сброшена");
+                    notify(a, tt("Статистика сброшена", "Statistics reset"));
                 });
             }
         }
@@ -985,11 +1087,18 @@ fn run_action(hwnd: HWND, action: Action) {
             let cmd = platform::popup(
                 hwnd,
                 &[
-                    Item::Cmd(1, if visible { "Скрыть Rivulet" } else { "Открыть Rivulet" }),
-                    Item::Cmd(2, "Открыть .torrent-файл…"),
-                    Item::Cmd(3, "Вставить magnet-ссылку"),
+                    Item::Cmd(
+                        1,
+                        if visible {
+                            tt("Скрыть Rivulet", "Hide Rivulet")
+                        } else {
+                            tt("Открыть Rivulet", "Open Rivulet")
+                        },
+                    ),
+                    Item::Cmd(2, tt("Открыть .torrent-файл…", "Open .torrent file…")),
+                    Item::Cmd(3, tt("Вставить magnet-ссылку", "Paste magnet link")),
                     Item::Sep,
-                    Item::Cmd(9, "Выход"),
+                    Item::Cmd(9, tt("Выход", "Exit")),
                 ],
             );
             match cmd {
@@ -1018,13 +1127,13 @@ fn run_action(hwnd: HWND, action: Action) {
             let cmd = platform::popup(
                 hwnd,
                 &[
-                    Item::Cmd(1, if running { "Пауза" } else { "Продолжить" }),
-                    Item::Cmd(2, "Открыть папку"),
-                    Item::Cmd(3, if expanded { "Свернуть" } else { "Подробнее" }),
-                    Item::Cmd(6, "Переименовать…\tF2"),
+                    Item::Cmd(1, if running { tt("Пауза", "Pause") } else { tt("Продолжить", "Resume") }),
+                    Item::Cmd(2, tt("Открыть папку", "Open folder")),
+                    Item::Cmd(3, if expanded { tt("Свернуть", "Collapse") } else { tt("Подробнее", "Details") }),
+                    Item::Cmd(6, tt("Переименовать…\tF2", "Rename…\tF2")),
                     Item::Sep,
-                    Item::Cmd(4, "Убрать из списка"),
-                    Item::Cmd(5, "Убрать и удалить файлы…"),
+                    Item::Cmd(4, tt("Убрать из списка", "Remove from list")),
+                    Item::Cmd(5, tt("Убрать и удалить файлы…", "Remove and delete files…")),
                 ],
             );
             match cmd {
@@ -1056,8 +1165,13 @@ fn run_action(hwnd: HWND, action: Action) {
                 }
                 5 => {
                     let title = s.alias.clone().unwrap_or(s.name.clone());
-                    if confirm(hwnd, &format!("Удалить скачанные файлы «{title}»? Это нельзя отменить."))
-                    {
+                    if confirm(
+                        hwnd,
+                        &tr!(
+                            "Удалить скачанные файлы «{title}»? Это нельзя отменить.",
+                            "Delete the downloaded files of “{title}”? This cannot be undone."
+                        ),
+                    ) {
                         with(|a| remove(a, vec![s.info_hash.clone()], true));
                     }
                 }
@@ -1083,19 +1197,27 @@ fn run_action(hwnd: HWND, action: Action) {
 /// them elsewhere, opens Settings → Default apps on Rivulet's page.
 fn associate(hwnd: HWND, exe: &std::path::Path) {
     if let Err(e) = shell::register(exe) {
-        with(|a| notify(a, format!("Не удалось записать в реестр: {e}")));
+        with(|a| notify(a, tr!("Не удалось записать в реестр: {e}", "Could not write to the registry: {e}")));
         return;
     }
     let (torrent_ok, magnet_ok) = shell::defaults(exe);
     if torrent_ok && magnet_ok {
-        with(|a| notify(a, "Готово: .torrent и magnet открываются в Rivulet"));
+        with(|a| {
+            notify(
+                a,
+                tt("Готово: .torrent и magnet открываются в Rivulet", "Done: .torrent and magnet now open in Rivulet"),
+            )
+        });
         return;
     }
     let ok = confirm_info(
         hwnd,
-        "Windows разрешает выбрать приложение по умолчанию только вам.
+        tt(
+            "Windows разрешает выбрать приложение по умолчанию только вам.
 
 Сейчас откроются «Приложения по умолчанию».          Выберите Rivulet для .torrent и для MAGNET.",
+            "Windows lets only you choose default apps.\n\nDefault apps will open now. Choose Rivulet for .torrent and for MAGNET.",
+        ),
     );
     if ok {
         platform::open_in_explorer(std::path::Path::new("ms-settings:defaultapps?registeredAppUser=Rivulet"));
@@ -1112,7 +1234,7 @@ fn paste(hwnd: HWND) {
     let sources = platform::sources_in_text(&text);
     with(|a| {
         if sources.is_empty() {
-            notify(a, "В буфере обмена нет magnet-ссылки");
+            notify(a, tt("В буфере обмена нет magnet-ссылки", "No magnet link in the clipboard"));
         } else {
             add_sources(a, sources);
         }
@@ -1199,8 +1321,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                         save_prefs(a);
                         tray::notify(
                             hwnd,
-                            "Rivulet продолжает работать",
-                            "Загрузки идут в фоне. Значок — в области уведомлений, выход — в его меню.",
+                            tt("Rivulet продолжает работать", "Rivulet is still running"),
+                            tt("Загрузки идут в фоне. Значок — в области уведомлений, выход — в его меню.", "Downloads continue in the background. The icon is in the notification area; exit from its menu."),
                         );
                     }
                     true
@@ -1482,7 +1604,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRES
                     let torrents: Vec<String> =
                         files.into_iter().filter(|f| f.to_ascii_lowercase().ends_with(".torrent")).collect();
                     if torrents.is_empty() {
-                        notify(a, "Перетащите файл с расширением .torrent");
+                        notify(
+                            a,
+                            tt("Перетащите файл с расширением .torrent", "Drop a file with the .torrent extension"),
+                        );
                     } else {
                         add_sources(a, torrents);
                     }

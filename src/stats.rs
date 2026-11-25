@@ -11,6 +11,8 @@ use std::{
 };
 
 use rivulet::engine::{Snapshot, Status};
+
+use crate::lang::{en, tt};
 use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
@@ -155,7 +157,11 @@ impl Stats {
 
     pub fn since_label(&self) -> String {
         let (y, m, d) = civil(self.data.since);
-        format!("Считается с {d} {} {y}", MONTHS[m as usize - 1])
+        if en() {
+            format!("Counting since {} {d}, {y}", MONTHS_EN[m as usize - 1])
+        } else {
+            format!("Считается с {d} {} {y}", MONTHS[m as usize - 1])
+        }
     }
 
     /// Downloaded and uploaded per day for the last `n` days, oldest first.
@@ -187,9 +193,9 @@ impl Stats {
             bars: Vec::new(),
             axis: Default::default(),
             title: match bucket {
-                1 => "По дням",
-                7 => "По неделям",
-                _ => "По месяцам",
+                1 => tt("По дням", "By day"),
+                7 => tt("По неделям", "By week"),
+                _ => tt("По месяцам", "By month"),
             },
             range: match p {
                 Period::All => self.since_label(),
@@ -262,6 +268,23 @@ const MONTHS: [&str; 12] = [
 const MONTHS_SHORT: [&str; 12] =
     ["янв", "февр", "мар", "апр", "мая", "июн", "июл", "авг", "сент", "окт", "нояб", "дек"];
 
+const MONTHS_EN: [&str; 12] = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+];
+const MONTHS_SHORT_EN: [&str; 12] =
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 /// Today's local date as a day number.
 pub fn today() -> i32 {
     let st = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
@@ -294,18 +317,35 @@ fn civil(z: i32) -> (i32, u32, u32) {
 
 fn day_label(k: i32) -> String {
     let (_, m, d) = civil(k);
-    format!("{d} {}", MONTHS[m as usize - 1])
+    if en() { format!("{} {d}", MONTHS_EN[m as usize - 1]) } else { format!("{d} {}", MONTHS[m as usize - 1]) }
 }
 
 fn short_label(k: i32) -> String {
     let (_, m, d) = civil(k);
-    format!("{d} {}", MONTHS_SHORT[m as usize - 1])
+    if en() {
+        format!("{} {d}", MONTHS_SHORT_EN[m as usize - 1])
+    } else {
+        format!("{d} {}", MONTHS_SHORT[m as usize - 1])
+    }
 }
 
-/// "18–24 ноября 2026" or "26 октября — 24 ноября 2026".
+/// "18–24 ноября 2026" or "26 октября — 24 ноября 2026";
+/// "November 18–24, 2026" or "October 26 – November 24, 2026".
 fn range_label(a: i32, b: i32) -> String {
     let (ya, ma, da) = civil(a);
     let (yb, mb, db) = civil(b);
+    if en() {
+        let (na, nb) = (MONTHS_EN[ma as usize - 1], MONTHS_EN[mb as usize - 1]);
+        return if a == b {
+            format!("{na} {da}, {ya}")
+        } else if ya == yb && ma == mb {
+            format!("{nb} {da}–{db}, {yb}")
+        } else if ya == yb {
+            format!("{na} {da} – {nb} {db}, {yb}")
+        } else {
+            format!("{na} {da}, {ya} – {nb} {db}, {yb}")
+        };
+    }
     if a == b {
         format!("{da} {} {ya}", MONTHS[ma as usize - 1])
     } else if ya == yb && ma == mb {
@@ -323,6 +363,7 @@ mod tests {
 
     #[test]
     fn civil_round_trip() {
+        crate::lang::set(crate::lang::Lang::Ru);
         for z in [-1000, 0, 1, 20_000, 20_781, 30_000] {
             let (y, m, d) = civil(z);
             assert_eq!(days_from_civil(y, m, d), z);

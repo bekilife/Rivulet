@@ -23,7 +23,7 @@
 - **At home on Windows.** Opens `.torrent` files and magnet links, keeps a single copy running, follows your light or dark theme, snaps and resizes like any window.
 - **Native and tiny.** One `rivulet.exe` of about 7 MB, ~35 MB of memory while downloading. No installer, no runtime, no WebView.
 
-The interface is currently in Russian.
+The interface is in English or Russian and follows your Windows language; switch it any time in Settings.
 
 ## Screenshots
 
@@ -85,4 +85,4 @@ BitTorrent is a way to move data. Download and share only what you have the righ
 
 ## На русском
 
-**Rivulet** — лёгкий торрент-клиент для Windows: один нативный exe около 7 МБ (Rust, Win32, Direct2D, движок librqbit). Перед загрузкой можно выбрать файлы, папку и своё название, а невыбранные файлы не появляются на диске. Есть статистика скачанного и розданного, три режима работы, поиск и переименование, значок в трее, уведомления и автозапуск. Rivulet открывает `.torrent` и magnet-ссылки. Интерфейс на русском. [Скачать](../../releases/latest).
+**Rivulet** — лёгкий торрент-клиент для Windows: один нативный exe около 7 МБ (Rust, Win32, Direct2D, движок librqbit). Перед загрузкой можно выбрать файлы, папку и своё название, а невыбранные файлы не появляются на диске. Есть статистика скачанного и розданного, три режима работы, поиск и переименование, значок в трее, уведомления и автозапуск. Rivulet открывает `.torrent` и magnet-ссылки. Интерфейс на русском и английском, язык берётся из Windows и меняется в настройках. [Скачать](../../releases/latest).

@@ -8,6 +8,8 @@
 
 use std::path::Path;
 
+use crate::lang::tt;
+
 use windows::{
     Win32::{
         Foundation::{ERROR_ALREADY_EXISTS, GetLastError, HWND, LPARAM, WPARAM},
@@ -254,11 +256,11 @@ pub fn register(exe: &Path) -> windows::core::Result<()> {
     let icon = format!("\"{}\",0", exe.display());
     let classes = r"Software\Classes";
 
-    set(&format!(r"{classes}\{TORRENT_PROGID}"), None, "Торрент-файл")?;
+    set(&format!(r"{classes}\{TORRENT_PROGID}"), None, tt("Торрент-файл", "Torrent file"))?;
     set(&format!(r"{classes}\{TORRENT_PROGID}\DefaultIcon"), None, &icon)?;
     set(&format!(r"{classes}\{TORRENT_PROGID}\shell\open\command"), None, &cmd)?;
 
-    set(&format!(r"{classes}\{MAGNET_PROGID}"), None, "URL:Magnet-ссылка")?;
+    set(&format!(r"{classes}\{MAGNET_PROGID}"), None, tt("URL:Magnet-ссылка", "URL:Magnet link"))?;
     set(&format!(r"{classes}\{MAGNET_PROGID}"), Some("URL Protocol"), "")?;
     set(&format!(r"{classes}\{MAGNET_PROGID}\DefaultIcon"), None, &icon)?;
     set(&format!(r"{classes}\{MAGNET_PROGID}\shell\open\command"), None, &cmd)?;
@@ -273,7 +275,7 @@ pub fn register(exe: &Path) -> windows::core::Result<()> {
     }
     // The scheme key must exist for Windows to know "magnet:" at all.
     if handler_command("magnet", true).as_deref().is_none_or(ours) {
-        set(&format!(r"{classes}\magnet"), None, "URL:Magnet-ссылка")?;
+        set(&format!(r"{classes}\magnet"), None, tt("URL:Magnet-ссылка", "URL:Magnet link"))?;
         set(&format!(r"{classes}\magnet"), Some("URL Protocol"), "")?;
         set(&format!(r"{classes}\magnet\DefaultIcon"), None, &icon)?;
         set(&format!(r"{classes}\magnet\shell\open\command"), None, &cmd)?;
@@ -285,7 +287,7 @@ pub fn register(exe: &Path) -> windows::core::Result<()> {
     set(&app_key, Some("FriendlyAppName"), APP)?;
 
     set(CAPABILITIES, Some("ApplicationName"), APP)?;
-    set(CAPABILITIES, Some("ApplicationDescription"), "Лёгкий торрент-клиент")?;
+    set(CAPABILITIES, Some("ApplicationDescription"), tt("Лёгкий торрент-клиент", "A light BitTorrent client"))?;
     set(CAPABILITIES, Some("ApplicationIcon"), &icon)?;
     set(&format!(r"{CAPABILITIES}\FileAssociations"), Some(".torrent"), TORRENT_PROGID)?;
     set(&format!(r"{CAPABILITIES}\URLAssociations"), Some("magnet"), MAGNET_PROGID)?;

@@ -15,6 +15,7 @@ use crate::{
     fmt,
     gfx::{Align, Color, Gfx, Rect},
     icons,
+    lang::tt,
     stats::{Period, Stats},
     theme::Theme,
 };
@@ -68,8 +69,8 @@ pub enum View {
     Stats,
 }
 
-pub const PERIODS: [(Period, &str); 3] =
-    [(Period::Week, "7 дней"), (Period::Month, "30 дней"), (Period::All, "Всё время")];
+pub const PERIODS: [(Period, &str, &str); 3] =
+    [(Period::Week, "7 дней", "7 days"), (Period::Month, "30 дней", "30 days"), (Period::All, "Всё время", "All time")];
 
 /// The "rename download" dialog.
 pub struct Rename {
@@ -386,7 +387,7 @@ impl Ui {
                 g.stroke_rrect(f.inset(0.5), 12.5, 1.0, t.card_border);
             }
             let field = Rect::new(f.x, f.y, f.w - 40.0, f.h);
-            self.text_field(g, field, q, "Поиск по названию", self.search_focus, 14.0);
+            self.text_field(g, field, q, tt("Поиск по названию", "Search by name"), self.search_focus, 14.0);
             self.hits.push((f, Hit::SearchField));
             let c = Rect::new(f.x + f.w - 40.0, f.y + 6.0, 32.0, 32.0);
             self.button_bg(g, Hit::SearchClear, c, 9.0);
@@ -419,13 +420,13 @@ impl Ui {
         }
         let month = stats.period(Period::Month);
         let tx = x + 10.0;
-        g.text("За 30 дней", 12.0).color(t.text3).draw(tx, r.y + 12.0);
+        g.text(tt("За 30 дней", "Last 30 days"), 12.0).color(t.text3).draw(tx, r.y + 12.0);
         let down = format!("↓ {}", fmt::size(month.down, false));
         let up = format!("↑ {}", fmt::size(month.up, false));
         let dw = g.text(&down, 15.0).weight(600).color(t.accent).draw(tx, r.y + 30.0);
         g.text(&up, 15.0).weight(600).color(t.green).draw(tx + dw + 12.0, r.y + 30.0);
         icons::draw(g, icons::CHEVRON_RIGHT, r.x + r.w - 32.0, r.y + 23.0, 18.0, 1.8, t.text2);
-        let label = "Статистика";
+        let label = tt("Статистика", "Statistics");
         let lw = g.text(label, 13.0).weight(600).measure();
         g.text(label, 13.0)
             .weight(600)
@@ -458,12 +459,18 @@ impl Ui {
             self.scroll = 0.0;
             let cy = top + (bottom - top) / 2.0 - 50.0;
             g.text("Rivulet", 44.0).weight(700).color(t.accent).width(w).align(Align::Center).draw(0.0, cy);
-            g.text("Перетащите сюда .torrent-файл, нажмите «+» или вставьте magnet-ссылку (Ctrl+V)", 14.0)
-                .color(t.text2)
-                .width(320.0)
-                .align(Align::Center)
-                .wrap()
-                .draw((w - 320.0) / 2.0, cy + 64.0);
+            g.text(
+                tt(
+                    "Перетащите сюда .torrent-файл, нажмите «+» или вставьте magnet-ссылку (Ctrl+V)",
+                    "Drop a .torrent file here, press + or paste a magnet link (Ctrl+V)",
+                ),
+                14.0,
+            )
+            .color(t.text2)
+            .width(320.0)
+            .align(Align::Center)
+            .wrap()
+            .draw((w - 320.0) / 2.0, cy + 64.0);
             return;
         }
         let shown: Vec<usize> = (0..self.snaps.len()).filter(|&i| self.matches(&self.snaps[i])).collect();
@@ -471,7 +478,7 @@ impl Ui {
             self.content_h = 0.0;
             self.scroll = 0.0;
             let q = self.search.clone().unwrap_or_default();
-            g.text(&format!("Ничего не найдено по запросу «{}»", q.trim()), 14.0)
+            g.text(&tr!("Ничего не найдено по запросу «{}»", "Nothing found for “{}”", q.trim()), 14.0)
                 .color(t.text2)
                 .width(w - 64.0)
                 .align(Align::Center)
@@ -560,7 +567,7 @@ impl Ui {
             let tw = right - lw - 12.0 - tx;
             let uploaded = stats.uploaded(&s.info_hash).unwrap_or(s.uploaded);
             let note = if uploaded > 0 {
-                format!("{} · роздано {}", fmt::size(s.size, precise), fmt::size(uploaded, precise))
+                tr!("{} · роздано {}", "{} · shared {}", fmt::size(s.size, precise), fmt::size(uploaded, precise))
             } else {
                 fmt::size(s.size, precise)
             };
@@ -573,7 +580,7 @@ impl Ui {
         let inner_w = r.w - 36.0;
         // Name, then "2,9 из 4,7 ГБ" next to the expand button.
         let amount = if s.status == Status::Downloading || s.status == Status::Paused || s.status == Status::Checking {
-            format!("{} из {}", fmt::size(s.downloaded, precise), fmt::size(s.size, precise))
+            tr!("{} из {}", "{} of {}", fmt::size(s.downloaded, precise), fmt::size(s.size, precise))
         } else {
             fmt::size(s.size, precise)
         };
@@ -620,7 +627,7 @@ impl Ui {
             g.text(err, 13.0).color(t.red).width(inner_w).ellipsis().draw(x, y);
             y += 24.0;
         } else if s.alias.is_some() {
-            let sub = format!("В торренте — {}", s.name);
+            let sub = tr!("В торренте — {}", "In the torrent: {}", s.name);
             g.text(&sub, 13.0).color(t.text2).width(inner_w).ellipsis().draw(x, y);
             y += 24.0;
         }
@@ -631,10 +638,10 @@ impl Ui {
             let vy = ly + 22.0;
             let uploaded = stats.uploaded(&s.info_hash).unwrap_or(s.uploaded);
             let cols: [(&str, &'static str, String); 4] = [
-                ("Сиды и пиры", icons::PEERS, format!("{} · {}", s.seeds, s.peers)),
-                ("Отдача", icons::UP, fmt::speed(s.up_bps, precise)),
-                ("Отдано", icons::ROTATE, fmt::size(uploaded, precise)),
-                ("Размер", icons::BOX, fmt::size(s.size, precise)),
+                (tt("Сиды и пиры", "Seeds & peers"), icons::PEERS, format!("{} · {}", s.seeds, s.peers)),
+                (tt("Отдача", "Upload"), icons::UP, fmt::speed(s.up_bps, precise)),
+                (tt("Отдано", "Uploaded"), icons::ROTATE, fmt::size(uploaded, precise)),
+                (tt("Размер", "Size"), icons::BOX, fmt::size(s.size, precise)),
             ];
             let col_w = inner_w / 4.0;
             for (k, (label, icon, value)) in cols.iter().enumerate() {
@@ -668,17 +675,19 @@ impl Ui {
         self.button_bg(g, Hit::Back, back.inset(1.0), 11.0);
         icons::draw(g, icons::BACK, back.x + 10.0, back.y + 10.0, 20.0, 1.8, t.text);
         self.hits.push((back, Hit::Back));
-        g.text("Статистика", 20.0)
+        g.text(tt("Статистика", "Statistics"), 20.0)
             .weight(650)
             .color(t.text)
             .draw(back.x + back.w + 12.0, BAR_Y + (44.0 - g.normal_lh(20.0)) / 2.0);
-        let widths: Vec<f32> = PERIODS.iter().map(|(_, l)| g.text(l, 13.0).weight(600).measure() + 28.0).collect();
+        let widths: Vec<f32> =
+            PERIODS.iter().map(|(_, ru, en)| g.text(tt(ru, en), 13.0).weight(600).measure() + 28.0).collect();
         let seg_w = widths.iter().sum::<f32>() + 6.0 + 2.0 * (widths.len() - 1) as f32;
         let seg = Rect::new(w - PAD - seg_w, BAR_Y + 3.0, seg_w, 38.0);
         g.fill_rrect(seg, 12.0, t.card);
         g.stroke_rrect(seg.inset(0.5), 11.5, 1.0, t.card_border);
         let mut sx = seg.x + 3.0;
-        for (k, (_, label)) in PERIODS.iter().enumerate() {
+        for (k, (_, ru, en)) in PERIODS.iter().enumerate() {
+            let label = tt(ru, en);
             let b = Rect::new(sx, seg.y + 3.0, widths[k], 32.0);
             let on = k == self.period;
             if on {
@@ -707,8 +716,18 @@ impl Ui {
         let col_w = (inner - 68.0 - 4.0 * 18.0 - 2.0) / 2.0;
         let cy = hero.y + 40.0;
         let cols = [
-            ("Скачано", t.accent, pv.down, fmt::count(pv.done as usize, ["загрузка", "загрузки", "загрузок"])),
-            ("Роздано", t.green, pv.up, fmt::count(pv.seeded, ["раздача", "раздачи", "раздач"])),
+            (
+                tt("Скачано", "Downloaded"),
+                t.accent,
+                pv.down,
+                fmt::count(pv.done as usize, ["загрузка", "загрузки", "загрузок"], ["download", "downloads"]),
+            ),
+            (
+                tt("Роздано", "Shared"),
+                t.green,
+                pv.up,
+                fmt::count(pv.seeded, ["раздача", "раздачи", "раздач"], ["seeded torrent", "seeded torrents"]),
+            ),
         ];
         let mut cx = hero.x + 18.0;
         for (label, color, bytes, note) in &cols {
@@ -735,7 +754,7 @@ impl Ui {
             .width(68.0)
             .align(Align::Center)
             .draw(rx - 34.0, ry - g.normal_lh(16.0) / 2.0);
-        g.text("Рейтинг", 12.0).color(t.text2).width(68.0).align(Align::Center).draw(rx - 34.0, ry + 38.0);
+        g.text(tt("Рейтинг", "Ratio"), 12.0).color(t.text2).width(68.0).align(Align::Center).draw(rx - 34.0, ry + 38.0);
 
         // Chart card.
         let chart = Rect::new(PAD, hero.y + hero.h + 12.0, w - 2.0 * PAD, 244.0);
@@ -743,7 +762,8 @@ impl Ui {
         g.stroke_rrect(chart.inset(0.5), 15.5, 1.0, t.card_border);
         g.text(pv.title, 15.0).weight(600).color(t.text).draw(chart.x + 18.0, chart.y + 14.0);
         let mut lx = chart.x + chart.w - 18.0;
-        for (label, color) in [("Роздано", t.green), ("Скачано", t.accent)] {
+        for (label, color) in [(tt("Роздано", "Shared"), t.green), (tt("Скачано", "Downloaded"), t.accent)]
+        {
             let lw = g.text(label, 12.0).measure();
             lx -= lw;
             g.text(label, 12.0).color(t.text2).draw(lx, chart.y + 17.0);
@@ -810,7 +830,9 @@ impl Ui {
                 .width(tw - 20.0)
                 .ellipsis()
                 .draw(tip.x + 10.0, tip.y + 8.0);
-            for (k, (name, v)) in [("Скачано", *d), ("Роздано", *u)].into_iter().enumerate() {
+            for (k, (name, v)) in
+                [(tt("Скачано", "Downloaded"), *d), (tt("Роздано", "Shared"), *u)].into_iter().enumerate()
+            {
                 let yy = tip.y + 26.0 + k as f32 * 17.0;
                 g.text(name, 12.0).color(t.tip_text).draw(tip.x + 10.0, yy);
                 g.text(&fmt::size(v, precise), 12.0)
@@ -827,8 +849,11 @@ impl Ui {
             Rect::new(PAD, chart.y + chart.h + 12.0, w - 2.0 * PAD, (h - PAD - (chart.y + chart.h + 12.0)).max(90.0));
         g.fill_rrect(list, 16.0, t.card);
         g.stroke_rrect(list.inset(0.5), 15.5, 1.0, t.card_border);
-        g.text("Больше всего роздано", 15.0).weight(600).color(t.text).draw(list.x + 18.0, list.y + 12.0);
-        let reset = "Сбросить статистику";
+        g.text(tt("Больше всего роздано", "Most shared"), 15.0)
+            .weight(600)
+            .color(t.text)
+            .draw(list.x + 18.0, list.y + 12.0);
+        let reset = tt("Сбросить статистику", "Reset statistics");
         let rw = g.text(reset, 12.0).weight(600).measure();
         let rr = Rect::new(list.x + list.w - 18.0 - rw - 8.0, list.y + 8.0, rw + 16.0, 28.0);
         self.button_bg(g, Hit::StatsReset, rr, 8.0);
@@ -837,7 +862,9 @@ impl Ui {
         let rows = (((list.h - 46.0) / 44.0).floor() as usize).clamp(1, 5);
         let top = stats.top(rows);
         if top.is_empty() {
-            g.text("Пока ничего не роздано", 13.0).color(t.text3).draw(list.x + 18.0, list.y + 50.0);
+            g.text(tt("Пока ничего не роздано", "Nothing shared yet"), 13.0)
+                .color(t.text3)
+                .draw(list.x + 18.0, list.y + 50.0);
         }
         let max_up = top.first().map_or(1, |e| e.up.max(1));
         for (k, e) in top.iter().enumerate() {
@@ -927,8 +954,8 @@ impl Ui {
         let mut hits = vec![(p, Hit::RenameBody)];
         let x = p.x + 22.0;
         let iw = pw - 44.0;
-        g.text("Переименовать", 12.0).color(t.text2).draw(x, p.y + 20.0);
-        g.text(&format!("В торренте — {}", rename.original), 15.0)
+        g.text(tt("Переименовать", "Rename"), 12.0).color(t.text2).draw(x, p.y + 20.0);
+        g.text(&tr!("В торренте — {}", "In the torrent: {}", rename.original), 15.0)
             .weight(600)
             .color(t.text)
             .width(iw)
@@ -937,18 +964,22 @@ impl Ui {
         let field = Rect::new(x, p.y + 72.0, iw, 38.0);
         g.fill_rrect(field, 8.0, t.field);
         g.stroke_rrect(field.inset(0.75), 7.25, 1.5, t.accent);
-        self.text_field(g, field, &rename.text, "Название в списке", true, 12.0);
+        self.text_field(g, field, &rename.text, tt("Название в списке", "Name in the list"), true, 12.0);
         hits.push((field, Hit::RenameField));
-        g.text("Оставьте пустым, чтобы вернуть название из торрента", 12.0)
-            .color(t.text3)
-            .width(iw)
-            .ellipsis()
-            .draw(x, field.y + field.h + 8.0);
+        g.text(
+            tt("Оставьте пустым, чтобы вернуть название из торрента", "Leave empty to use the name from the torrent"),
+            12.0,
+        )
+        .color(t.text3)
+        .width(iw)
+        .ellipsis()
+        .draw(x, field.y + field.h + 8.0);
         let ok = Rect::new(p.x + pw - 22.0 - 130.0, p.y + ph - 22.0 - 38.0, 130.0, 38.0);
         let cancel = Rect::new(ok.x - 10.0 - 110.0, ok.y, 110.0, 38.0);
-        for (r, label, hit, primary) in
-            [(cancel, "Отмена", Hit::RenameCancel, false), (ok, "Сохранить", Hit::RenameOk, true)]
-        {
+        for (r, label, hit, primary) in [
+            (cancel, tt("Отмена", "Cancel"), Hit::RenameCancel, false),
+            (ok, tt("Сохранить", "Save"), Hit::RenameOk, true),
+        ] {
             let (bg, fg) = if primary { (t.accent, t.on_accent) } else { (t.chip, t.text) };
             g.fill_rrect(r, 8.0, bg);
             if !primary {
@@ -991,9 +1022,9 @@ impl Ui {
         let Some(sheet) = &self.sheet else { return };
         let x = p.x + 22.0;
         let iw = pw - 44.0;
-        let mut header = "Новая загрузка".to_string();
+        let mut header = tt("Новая загрузка", "New download").to_string();
         if sheet.position.1 > 1 {
-            header += &format!(" · {} из {}", sheet.position.0, sheet.position.1);
+            header += &tr!(" · {} из {}", " · {} of {}", sheet.position.0, sheet.position.1);
         }
         g.text(&header, 12.0).color(t.text2).draw(x, p.y + 20.0);
         let name = match &sheet.state {
@@ -1041,23 +1072,23 @@ impl Ui {
                 ));
                 g.ring(cx, cy, 16.0, 3.0, 28.0, t.accent, Color(0.0, 0.0, 0.0, 0.0));
                 g.pop_transform();
-                g.text("Получаю список файлов…", 14.0)
+                g.text(tt("Получаю список файлов…", "Getting the file list…"), 14.0)
                     .color(t.text2)
                     .width(pw)
                     .align(Align::Center)
                     .draw(p.x, cy + 30.0);
-                button(g, &mut hits, ok, "Отмена", Hit::SheetCancel, false, true);
+                button(g, &mut hits, ok, tt("Отмена", "Cancel"), Hit::SheetCancel, false, true);
             }
             SheetState::Failed(msg) => {
                 let cy = p.y + 100.0;
                 icons::draw(g, icons::WARN, x, cy, 24.0, 1.8, t.red);
                 g.text(msg, 14.0).color(t.text).width(iw - 36.0).wrap().draw(x + 36.0, cy + 2.0);
-                button(g, &mut hits, ok, "Закрыть", Hit::SheetCancel, false, true);
+                button(g, &mut hits, ok, tt("Закрыть", "Close"), Hit::SheetCancel, false, true);
             }
             SheetState::Ready(draft) => {
                 // Alias field.
                 let mut y = p.y + 78.0;
-                g.text("Своё название", 12.0).color(t.text2).draw(x, y);
+                g.text(tt("Своё название", "Custom name"), 12.0).color(t.text2).draw(x, y);
                 let field = Rect::new(x, y + 20.0, iw, 38.0);
                 g.fill_rrect(field, 8.0, t.field);
                 if sheet.alias_focus {
@@ -1067,11 +1098,14 @@ impl Ui {
                 }
                 let ty = field.y + (38.0 - g.normal_lh(14.0)) / 2.0;
                 if sheet.alias.is_empty() {
-                    g.text("Необязательно — как подписать загрузку в списке", 14.0)
-                        .color(t.text3)
-                        .width(iw - 24.0)
-                        .ellipsis()
-                        .draw(x + 12.0, ty);
+                    g.text(
+                        tt("Необязательно — как подписать загрузку в списке", "Optional — how to label it in the list"),
+                        14.0,
+                    )
+                    .color(t.text3)
+                    .width(iw - 24.0)
+                    .ellipsis()
+                    .draw(x + 12.0, ty);
                 }
                 let shown_w = if sheet.alias.is_empty() {
                     0.0
@@ -1087,14 +1121,19 @@ impl Ui {
 
                 // Files header.
                 let n = sheet.selected_count();
-                let head = format!(
+                let head = tr!(
                     "Файлы · выбрано {} из {} · {}",
+                    "Files · {} of {} selected · {}",
                     n,
                     draft.files.len(),
                     fmt::size(sheet.selected_bytes(), precise)
                 );
                 g.text(&head, 13.0).weight(600).color(t.text).width(iw - 120.0).ellipsis().draw(x, y);
-                let all_label = if n == draft.files.len() { "Снять все" } else { "Выбрать все" };
+                let all_label = if n == draft.files.len() {
+                    tt("Снять все", "Select none")
+                } else {
+                    tt("Выбрать все", "Select all")
+                };
                 let aw = g.text(all_label, 13.0).weight(600).measure();
                 let all = Rect::new(x + iw - aw - 12.0, y - 4.0, aw + 12.0, 26.0);
                 if hover == Some(Hit::SheetAll) {
@@ -1159,7 +1198,7 @@ impl Ui {
                 // Folder row.
                 let fy = list_bottom + 14.0;
                 icons::draw(g, icons::FOLDER, x, fy, 20.0, 1.6, t.text2);
-                let change = "Изменить";
+                let change = tt("Изменить", "Change");
                 let cw = g.text(change, 13.0).weight(600).measure();
                 let cr = Rect::new(x + iw - cw - 12.0, fy - 3.0, cw + 12.0, 26.0);
                 if hover == Some(Hit::SheetFolder) {
@@ -1172,21 +1211,30 @@ impl Ui {
                 let need = sheet.selected_bytes();
                 let (free_text, free_color) = match sheet.free {
                     Some(free) if free < need => (
-                        format!(
+                        tr!(
                             "Не хватает места: нужно {}, свободно {}",
+                            "Not enough space: need {}, free {}",
                             fmt::size(need, false),
                             fmt::size(free, false)
                         ),
                         t.red,
                     ),
-                    Some(free) => (format!("Свободно {}", fmt::size(free, false)), t.text2),
+                    Some(free) => (tr!("Свободно {}", "Free: {}", fmt::size(free, false)), t.text2),
                     None => (String::new(), t.text2),
                 };
                 g.text(&free_text, 12.0).color(free_color).width(iw - 28.0).ellipsis().draw(x + 28.0, fy + 22.0);
 
                 let can = sheet.can_start();
-                button(g, &mut hits, cancel, "Отмена", Hit::SheetCancel, false, true);
-                button(g, &mut hits, ok, if sheet.busy { "Добавляю…" } else { "Скачать" }, Hit::SheetOk, true, can);
+                button(g, &mut hits, cancel, tt("Отмена", "Cancel"), Hit::SheetCancel, false, true);
+                button(
+                    g,
+                    &mut hits,
+                    ok,
+                    if sheet.busy { tt("Добавляю…", "Adding…") } else { tt("Скачать", "Download") },
+                    Hit::SheetOk,
+                    true,
+                    can,
+                );
             }
         }
         self.hits.extend(hits);
@@ -1204,13 +1252,13 @@ fn is_compact(s: &Snapshot) -> bool {
 
 fn status_label(s: &Snapshot) -> &'static str {
     match s.status {
-        Status::Checking => "Проверка",
-        Status::Downloading if s.peers == 0 => "Ищу пиров",
-        Status::Downloading => "Загрузка",
-        Status::Seeding => "Раздаётся",
-        Status::Paused => "Пауза",
-        Status::Finished => "Готово",
-        Status::Error => "Ошибка",
+        Status::Checking => tt("Проверка", "Checking"),
+        Status::Downloading if s.peers == 0 => tt("Ищу пиров", "Finding peers"),
+        Status::Downloading => tt("Загрузка", "Downloading"),
+        Status::Seeding => tt("Раздаётся", "Seeding"),
+        Status::Paused => tt("Пауза", "Paused"),
+        Status::Finished => tt("Готово", "Done"),
+        Status::Error => tt("Ошибка", "Error"),
     }
 }
 
@@ -1240,22 +1288,23 @@ fn short_source(s: &str) -> String {
         return dn.replace('+', " ").replace("%20", " ");
     }
     if s.starts_with("magnet:") {
-        return "Magnet-ссылка".into();
+        return tt("Magnet-ссылка", "Magnet link").into();
     }
     std::path::Path::new(s).file_name().map_or_else(|| s.to_string(), |n| n.to_string_lossy().into_owned())
 }
 
 /// A rounded-up scale for the chart's y axis: (max in bytes, labels top..0).
 fn axis_scale(max: u64) -> (u64, [String; 3]) {
-    const UNITS: [(u64, &str); 4] = [(1 << 40, "ТБ"), (1 << 30, "ГБ"), (1 << 20, "МБ"), (1 << 10, "КБ")];
-    let (unit, name) = UNITS.iter().copied().find(|(u, _)| max >= *u).unwrap_or((1 << 30, "ГБ"));
+    const UNITS: [(u64, usize); 4] = [(1 << 40, 4), (1 << 30, 3), (1 << 20, 2), (1 << 10, 1)];
+    let (unit, idx) = UNITS.iter().copied().find(|(u, _)| max >= *u).unwrap_or((1 << 30, 3));
+    let name = fmt::unit(idx);
     let v = (max as f64 / unit as f64).max(1e-9);
     let mag = 10f64.powf(v.log10().floor());
     let nice = [1.0, 2.0, 4.0, 5.0, 10.0].into_iter().map(|m| m * mag).find(|n| *n >= v - 1e-9).unwrap_or(10.0 * mag);
     let nice = if max == 0 { 1.0 } else { nice };
     let label = |x: f64| {
-        let s = if x.fract().abs() < 1e-9 { format!("{x:.0}") } else { format!("{x:.1}") };
-        format!("{} {name}", s.replace('.', ","))
+        let d = if x.fract().abs() < 1e-9 { 0 } else { 1 };
+        format!("{} {name}", fmt::num(x, d))
     };
     ((nice * unit as f64) as u64, [label(nice), label(nice / 2.0), "0".to_string()])
 }

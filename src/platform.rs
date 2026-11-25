@@ -27,7 +27,7 @@ use windows::{
     core::{HSTRING, PCWSTR, w},
 };
 
-use crate::wide;
+use crate::{lang::tt, wide};
 
 pub fn downloads_folder() -> PathBuf {
     unsafe {
@@ -70,12 +70,13 @@ pub fn pick_torrents(owner: HWND) -> Vec<PathBuf> {
         let Ok(dlg) = CoCreateInstance::<_, IFileOpenDialog>(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) else {
             return Vec::new();
         };
+        let names = (HSTRING::from(tt("Торрент-файлы", "Torrent files")), HSTRING::from(tt("Все файлы", "All files")));
         let filters = [
-            COMDLG_FILTERSPEC { pszName: w!("Торрент-файлы"), pszSpec: w!("*.torrent") },
-            COMDLG_FILTERSPEC { pszName: w!("Все файлы"), pszSpec: w!("*.*") },
+            COMDLG_FILTERSPEC { pszName: PCWSTR(names.0.as_ptr()), pszSpec: w!("*.torrent") },
+            COMDLG_FILTERSPEC { pszName: PCWSTR(names.1.as_ptr()), pszSpec: w!("*.*") },
         ];
         let _ = dlg.SetFileTypes(&filters);
-        let _ = dlg.SetTitle(w!("Открыть торрент"));
+        let _ = dlg.SetTitle(&HSTRING::from(tt("Открыть торрент", "Open torrent")));
         if let Ok(o) = dlg.GetOptions() {
             let _ = dlg.SetOptions(o | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
         }
@@ -93,7 +94,7 @@ pub fn pick_folder(owner: HWND, start: &Path) -> Option<PathBuf> {
         let dlg: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER).ok()?;
         let o = dlg.GetOptions().ok()?;
         dlg.SetOptions(o | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM).ok()?;
-        let _ = dlg.SetTitle(w!("Куда сохранить"));
+        let _ = dlg.SetTitle(&HSTRING::from(tt("Куда сохранить", "Save to")));
         let h = HSTRING::from(start.as_os_str());
         if let Ok(item) = SHCreateItemFromParsingName::<_, _, IShellItem>(&h, None) {
             let _ = dlg.SetFolder(&item);
